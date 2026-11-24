@@ -5,7 +5,7 @@
 # nahimic-linux for ASRock B650M-H/M.2+ (CachyOS / Arch)
 
 This is a **complete, tested port** of [wearzdk/nahimic-linux](https://github.com/wearzdk/nahimic-linux) v0.3.3
-for your ASRock B650M-H/M.2+ (Realtek **ALC897**, `alsa.components = HDA:10ec0897,18491897,00100402`).
+for ASRock B650M-H/M.2+ (Realtek **ALC897**, `alsa.components = HDA:10ec0897,18491897,00100402`).
 
 It runs the **real ASRock Nahimic engine** — the same APO4 runtime and the same
 `Generic_ExternalSpeakers` factory settings that the official
@@ -174,12 +174,9 @@ pactl list sinks | grep -iE "active port|alsa.components"
    toggling, quit, no-tray close, language retranslation and the Wayland retry
    decision.
 
-## After it works: upstream it
+## AGENTS
 
 The project explicitly invites new device support (read `AGENTS.md` in the repo).
-Test the four upstream acceptance points on your machine, then open a pull
-request with both patches (plus your verification notes) against
-https://github.com/wearzdk/nahimic-linux:
 
 1. effect switching (enable/disable, Music/Movie/Gaming/Communication)
 2. parameter persistence across a cold restart
