@@ -1,3 +1,7 @@
+<img width="317" height="58" alt="image" src="https://github.com/user-attachments/assets/21f5197f-cf3d-4fad-ba4a-c98a6ee678bd" />
+<img width="1104" height="688" alt="image" src="https://github.com/user-attachments/assets/985086d0-8e2f-41fc-a0d3-69efc36d3e54" />
+<img width="1104" height="688" alt="image" src="https://github.com/user-attachments/assets/d0f9bb6c-265d-4728-a62b-3365504e59f1" />
+
 # nahimic-linux for ASRock B650M-H/M.2+ (CachyOS / Arch)
 
 This is a **complete, tested port** of [wearzdk/nahimic-linux](https://github.com/wearzdk/nahimic-linux) v0.3.3
