@@ -1,0 +1,904 @@
+diff --git a/README.en.md b/README.en.md
+index 27c8517..e7959de 100644
+--- a/README.en.md
++++ b/README.en.md
+@@ -88,6 +88,15 @@ vendor runtime. The generic AIstone/MSI restore-tool settings become optional
+ at build time, so package builders that cannot reach the Nahimic support site
+ can still produce a working desktop build.
+ 
++The same installer's Nahimic3 app bundle carries the vendor equalizer presets
++(`Settings/v1/EQPresets`, installed under `eqpresets`). The control panel shows
++one preset row per audio profile — Music: Dynamic, Heavy Bass, Brilliant,
++Vocals; Movie: Dialogues, Immersion; Gaming: Fast-paced, Atmospheric,
++FPS Competition, Racing; Communication: Balanced, Clear Chat, Livestream —
++using the display names the Windows panel localizes. Choosing a preset writes
++all ten band gains in one store update; moving a slider switches the selection
++back to Custom, exactly like the Windows panel.
++
+ ## Contribute device support
+ 
+ Read [AGENTS.md](AGENTS.md) first. Include your laptop model, audio hardware IDs, PipeWire output information, and results from testing effect switching, settings persistence, service restarts, and continuous playback. Each model needs a configuration matching its hardware. New device support should be verified on the actual machine before submitting a pull request.
+diff --git a/README.md b/README.md
+index 8b6b705..f41c594 100644
+--- a/README.md
++++ b/README.md
+@@ -68,6 +68,8 @@ APO3 文件来自现有固定版本恢复工具归档，与 APO4 的运行组件
+ 
+ [ASRock Nahimic(v1.10.11_APO4)](https://download.asrock.com/Utility/Others/Nahimic(v1.10.11_APO4).zip) 扩展驱动覆盖的 ASRock 主板使用其 APO4 `Generic_ExternalSpeakers` 配置。厂商对所有 `AVoluteNH3Ext.inf` 所列主板共用同一份外接扬声器调校，因此全部 HDA 子系统均在匹配之列（`18491897` 已在 B650M-H/M.2+（Realtek ALC897）上验证；`18492897`、`18496899`、`18498899` 及 ALC1220 主板 `18492229`–`1849222d` 依据 INF）。线路输出端口兼容 PipeWire path 配置与 UCM 命名；插入耳机时旁路音效，HDMI 等其他输出保持原有路径。构建使用 `innoextract` 从 ASRock 安装包提取设置，ASRock 原厂设置保存在 `factory-asrock`，与 APO4 共享运行组件并列。通用 AIstone/MSI 恢复工具设置在构建时变为可选，无法访问 Nahimic 支持站点的打包者仍可完成台式机构建。
+ 
++同一安装包内的 Nahimic3 应用还带有厂商均衡器预设（`Settings/v1/EQPresets`，安装到 `eqpresets`）。控制面板在每个音效模式下显示对应的预设按钮——音乐：增加动态、强化低音、增强明亮、人声增强；电影：对白增强、更加沉浸；游戏：节奏紧凑、氛围强化、第一人称射击、极限竞速；通话：平衡语音、通话清晰、实况转播——并沿用 Windows 面板的本地化名称。选择预设会一次性写入全部十个频段增益；手动拖动滑块后自动回到自定义，与 Windows 面板一致。
++
+ ## 贡献设备适配
+ 
+ 请先阅读 [AGENTS.md](AGENTS.md)。提交机器型号、声卡硬件 ID、PipeWire 输出信息，以及音效开关、参数保存、服务重启和连续播放的测试结果。每个型号使用与硬件匹配的配置，新增支持以本机验证为依据。
+diff --git a/app/backend.py b/app/backend.py
+index dde646a..93b5e94 100644
+--- a/app/backend.py
++++ b/app/backend.py
+@@ -8,6 +8,7 @@ import sys
+ 
+ DATA = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "nahimic-linux"
+ RUNTIME = DATA / "runtime"
++SHARE = Path("/usr/share/nahimic-linux")
+ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "host"))
+ from desktop_audio import atomic_json, pulse
+ 
+@@ -18,6 +19,21 @@ PROFILES = {
+     "Communication": ("通话", "77f18420-d6b9-11e7-8f1a-0800200c9a66"),
+ }
+ 
++# Vendor equalizer preset files name the ten bands the way the Windows Nahimic3
++# panel does; the audio engine settings use their own band centres.
++EQ_BANDS = (
++    ("EQ32HzGainDB", "kSet_EQ31HzGainDB"),
++    ("EQ64HzGainDB", "kSet_EQ62HzGainDB"),
++    ("EQ125HzGainDB", "kSet_EQ125HzGainDB"),
++    ("EQ250HzGainDB", "kSet_EQ250HzGainDB"),
++    ("EQ500HzGainDB", "kSet_EQ500HzGainDB"),
++    ("EQ1kHzGainDB", "kSet_EQ1kHzGainDB"),
++    ("EQ2kHzGainDB", "kSet_EQ2kHzGainDB"),
++    ("EQ4kHzGainDB", "kSet_EQ4kHzGainDB"),
++    ("EQ8kHzGainDB", "kSet_EQ8kHzGainDB"),
++    ("EQ16kHzGainDB", "kSet_EQ16kHzGainDB"),
++)
++
+ 
+ class Backend:
+     def control(self, *args):
+@@ -58,6 +74,34 @@ class Backend:
+             raise RuntimeError("音效参数未生效")
+         return state
+ 
++    def set_settings(self, values):
++        arguments = []
++        for name, value in values.items():
++            arguments.extend((name, str(value)))
++        self.control("--set-settings", *arguments)
++        state = self.settings()
++        for name, value in values.items():
++            if abs(state["settings"][name]["value"] - float(value)) > 1e-5:
++                raise RuntimeError("音效参数未生效")
++        return state
++
++    def eq_presets(self):
++        presets = {}
++        directory = SHARE / "eqpresets"
++        if not directory.is_dir():
++            return presets
++        for profile in sorted(path.name for path in directory.iterdir() if path.is_dir()):
++            entries = []
++            for path in sorted((directory / profile).glob("*.json")):
++                data = json.loads(path.read_text())
++                values = {setting: float(data[source]) for source, setting in EQ_BANDS
++                          if source in data}
++                if len(values) == len(EQ_BANDS):
++                    entries.append((path.stem, values))
++            if entries:
++                presets[profile] = entries
++        return presets
++
+     def profile(self, name):
+         self.control("--global-profile", "{" + PROFILES[name][1] + "}")
+         state = self.settings()
+diff --git a/app/locales/de.json b/app/locales/de.json
+index e76d02a..f6891fa 100644
+--- a/app/locales/de.json
++++ b/app/locales/de.json
+@@ -56,5 +56,20 @@
+   "Maximize": "Maximieren / Wiederherstellen",
+   "Close": "Schließen",
+   "设置未获系统确认，已重新读取当前状态。": "Das System hat die Änderung nicht bestätigt. Der aktuelle Status wurde neu geladen.",
+-  "等待内置扬声器，其他输出正常使用": "Warte auf integrierte Lautsprecher. Andere Ausgänge bleiben verfügbar."
++  "等待内置扬声器，其他输出正常使用": "Warte auf integrierte Lautsprecher. Andere Ausgänge bleiben verfügbar.",
++  "预设": "Voreinstellungen",
++  "增加动态": "Dynamisch",
++  "强化低音": "Starker Bass",
++  "增强明亮": "Brillant",
++  "人声增强": "Stimme",
++  "对白增强": "Dialoge",
++  "更加沉浸": "Immersion",
++  "节奏紧凑": "Schnelles Tempo",
++  "氛围强化": "Atmosphärisch",
++  "第一人称射击": "FPS Wettbewerb",
++  "极限竞速": "Rennen",
++  "平衡语音": "Ausgeglichen",
++  "通话清晰": "Klarer Chat",
++  "实况转播": "Livestream",
++  "自定义": "Eigene Einstellungen"
+ }
+diff --git a/app/locales/en.json b/app/locales/en.json
+index ad237bd..aa9d808 100644
+--- a/app/locales/en.json
++++ b/app/locales/en.json
+@@ -56,5 +56,20 @@
+   "Maximize": "Maximize / Restore",
+   "Close": "Close",
+   "设置未获系统确认，已重新读取当前状态。": "The system did not confirm the change. Current state has been reloaded.",
+-  "等待内置扬声器，其他输出正常使用": "Waiting for built-in speakers. Other outputs remain available."
++  "等待内置扬声器，其他输出正常使用": "Waiting for built-in speakers. Other outputs remain available.",
++  "预设": "Presets",
++  "增加动态": "Dynamic",
++  "强化低音": "Heavy Bass",
++  "增强明亮": "Brilliant",
++  "人声增强": "Vocals",
++  "对白增强": "Dialogues",
++  "更加沉浸": "Immersion",
++  "节奏紧凑": "Fast-paced",
++  "氛围强化": "Atmospheric",
++  "第一人称射击": "FPS Competition",
++  "极限竞速": "Racing",
++  "平衡语音": "Balanced",
++  "通话清晰": "Clear Chat",
++  "实况转播": "Livestream",
++  "自定义": "Custom"
+ }
+diff --git a/app/locales/es.json b/app/locales/es.json
+index a93fdc9..535cdd5 100644
+--- a/app/locales/es.json
++++ b/app/locales/es.json
+@@ -56,5 +56,20 @@
+   "Maximize": "Maximizar / Restaurar",
+   "Close": "Cerrar",
+   "设置未获系统确认，已重新读取当前状态。": "El sistema no confirmó el cambio. Se ha vuelto a leer el estado actual.",
+-  "等待内置扬声器，其他输出正常使用": "Esperando los altavoces integrados. Las demás salidas siguen disponibles."
++  "等待内置扬声器，其他输出正常使用": "Esperando los altavoces integrados. Las demás salidas siguen disponibles.",
++  "预设": "Ajustes preestablecidos",
++  "增加动态": "Dinámico",
++  "强化低音": "Graves intensos",
++  "增强明亮": "Brillante",
++  "人声增强": "Voces",
++  "对白增强": "Diálogos",
++  "更加沉浸": "Inmersión",
++  "节奏紧凑": "Ritmo rápido",
++  "氛围强化": "Atmosférico",
++  "第一人称射击": "Competencia FPS",
++  "极限竞速": "Carreras",
++  "平衡语音": "Equilibrado",
++  "通话清晰": "Chat claro",
++  "实况转播": "Livestream",
++  "自定义": "Personalizado"
+ }
+diff --git a/app/locales/fr.json b/app/locales/fr.json
+index 08fb695..a10bfa3 100644
+--- a/app/locales/fr.json
++++ b/app/locales/fr.json
+@@ -56,5 +56,20 @@
+   "Maximize": "Agrandir / Restaurer",
+   "Close": "Fermer",
+   "设置未获系统确认，已重新读取当前状态。": "Le système n’a pas confirmé la modification. L’état actuel a été rechargé.",
+-  "等待内置扬声器，其他输出正常使用": "En attente des haut-parleurs intégrés. Les autres sorties restent disponibles."
++  "等待内置扬声器，其他输出正常使用": "En attente des haut-parleurs intégrés. Les autres sorties restent disponibles.",
++  "预设": "Préréglages",
++  "增加动态": "Dynamique",
++  "强化低音": "Basses profondes",
++  "增强明亮": "Brillant",
++  "人声增强": "Vocal",
++  "对白增强": "Dialogues",
++  "更加沉浸": "Immersion",
++  "节奏紧凑": "Gameplay rapide",
++  "氛围强化": "Atmosphérique",
++  "第一人称射击": "FPS compétition",
++  "极限竞速": "Racing",
++  "平衡语音": "Equilibré",
++  "通话清晰": "Clear chat",
++  "实况转播": "Livestream",
++  "自定义": "Personnalisé"
+ }
+diff --git a/app/locales/it.json b/app/locales/it.json
+index bc97080..8229a4c 100644
+--- a/app/locales/it.json
++++ b/app/locales/it.json
+@@ -56,5 +56,20 @@
+   "Maximize": "Ingrandisci / Ripristina",
+   "Close": "Chiudi",
+   "设置未获系统确认，已重新读取当前状态。": "Il sistema non ha confermato la modifica. Lo stato attuale è stato ricaricato.",
+-  "等待内置扬声器，其他输出正常使用": "In attesa degli altoparlanti integrati. Le altre uscite restano disponibili."
++  "等待内置扬声器，其他输出正常使用": "In attesa degli altoparlanti integrati. Le altre uscite restano disponibili.",
++  "预设": "Preset",
++  "增加动态": "Dinamico",
++  "强化低音": "Bassi potenti",
++  "增强明亮": "Brillante",
++  "人声增强": "Voce",
++  "对白增强": "Dialoghi",
++  "更加沉浸": "Immersione",
++  "节奏紧凑": "Ritmo serrato",
++  "氛围强化": "Atmosfera",
++  "第一人称射击": "Competizione FPS",
++  "极限竞速": "Racing",
++  "平衡语音": "Bilanciato",
++  "通话清晰": "Clear Chat",
++  "实况转播": "Diretta streaming",
++  "自定义": "Custom"
+ }
+diff --git a/app/locales/ja.json b/app/locales/ja.json
+index 09eb8f9..9f6a5c1 100644
+--- a/app/locales/ja.json
++++ b/app/locales/ja.json
+@@ -56,5 +56,20 @@
+   "Maximize": "最大化 / 元に戻す",
+   "Close": "閉じる",
+   "设置未获系统确认，已重新读取当前状态。": "変更をシステムが確認できませんでした。現在の状態を再読み込みしました。",
+-  "等待内置扬声器，其他输出正常使用": "内蔵スピーカーを待っています。他の出力は使用できます。"
++  "等待内置扬声器，其他输出正常使用": "内蔵スピーカーを待っています。他の出力は使用できます。",
++  "预设": "プリセット",
++  "增加动态": "ダイナミック",
++  "强化低音": "ヘビーバス",
++  "增强明亮": "ブリリアント",
++  "人声增强": "ボーカル",
++  "对白增强": "ダイアログ",
++  "更加沉浸": "イマージョン",
++  "节奏紧凑": "ファストペース",
++  "氛围强化": "アトモスフェリック",
++  "第一人称射击": "FPSコンペ",
++  "极限竞速": "レーシング",
++  "平衡语音": "バランス",
++  "通话清晰": "クリアチャット",
++  "实况转播": "ライブストリーム",
++  "自定义": "カスタム"
+ }
+diff --git a/app/locales/ko.json b/app/locales/ko.json
+index 12cb756..ebe07c8 100644
+--- a/app/locales/ko.json
++++ b/app/locales/ko.json
+@@ -56,5 +56,20 @@
+   "Maximize": "최대화 / 복원",
+   "Close": "닫기",
+   "设置未获系统确认，已重新读取当前状态。": "시스템에서 변경을 확인하지 못했습니다. 현재 상태를 다시 읽었습니다.",
+-  "等待内置扬声器，其他输出正常使用": "내장 스피커를 기다리는 중입니다. 다른 출력은 사용할 수 있습니다."
++  "等待内置扬声器，其他输出正常使用": "내장 스피커를 기다리는 중입니다. 다른 출력은 사용할 수 있습니다.",
++  "预设": "사전 설정",
++  "增加动态": "역동적",
++  "强化低音": "중후한 베이스",
++  "增强明亮": "뛰어난",
++  "人声增强": "보컬",
++  "对白增强": "대화",
++  "更加沉浸": "담금",
++  "节奏紧凑": "빨리 진행되는",
++  "氛围强化": "대기의",
++  "第一人称射击": "FPS 경합",
++  "极限竞速": "레이싱",
++  "平衡语音": "균형된",
++  "通话清晰": "채팅 삭제",
++  "实况转播": "실시간 방송",
++  "自定义": "사용자 지정"
+ }
+diff --git a/app/locales/pt.json b/app/locales/pt.json
+index 68a7b30..8360528 100644
+--- a/app/locales/pt.json
++++ b/app/locales/pt.json
+@@ -56,5 +56,20 @@
+   "Maximize": "Maximizar / Restaurar",
+   "Close": "Fechar",
+   "设置未获系统确认，已重新读取当前状态。": "O sistema não confirmou a alteração. O estado atual foi recarregado.",
+-  "等待内置扬声器，其他输出正常使用": "Aguardando os alto-falantes integrados. As outras saídas continuam disponíveis."
++  "等待内置扬声器，其他输出正常使用": "Aguardando os alto-falantes integrados. As outras saídas continuam disponíveis.",
++  "预设": "Predefinições",
++  "增加动态": "Dinâmico",
++  "强化低音": "Graves Fortes",
++  "增强明亮": "Brilhante",
++  "人声增强": "Vozes",
++  "对白增强": "Diálogos",
++  "更加沉浸": "Imersão",
++  "节奏紧凑": "De ritmo rápido",
++  "氛围强化": "Atmosférico",
++  "第一人称射击": "Competição FPS",
++  "极限竞速": "Corrida",
++  "平衡语音": "Equilibrado",
++  "通话清晰": "Limpar Conversa",
++  "实况转播": "Livestream",
++  "自定义": "Personalizar"
+ }
+diff --git a/app/locales/ru.json b/app/locales/ru.json
+index 7ab50bd..41c6c9e 100644
+--- a/app/locales/ru.json
++++ b/app/locales/ru.json
+@@ -56,5 +56,20 @@
+   "Maximize": "Развернуть / Восстановить",
+   "Close": "Закрыть",
+   "设置未获系统确认，已重新读取当前状态。": "Система не подтвердила изменение. Текущее состояние загружено повторно.",
+-  "等待内置扬声器，其他输出正常使用": "Ожидание встроенных динамиков. Другие выходы доступны."
++  "等待内置扬声器，其他输出正常使用": "Ожидание встроенных динамиков. Другие выходы доступны.",
++  "预设": "Пресеты",
++  "增加动态": "Динамический",
++  "强化低音": "Тяжёлый бас",
++  "增强明亮": "Блестящий",
++  "人声增强": "Вокал",
++  "对白增强": "Диалоги",
++  "更加沉浸": "Погружение",
++  "节奏紧凑": "Быстрый темп",
++  "氛围强化": "Атмосферный",
++  "第一人称射击": "FPS-состязание",
++  "极限竞速": "Гонка",
++  "平衡语音": "Сбалансированный",
++  "通话清晰": "Очистка чата",
++  "实况转播": "Прямая трансляция",
++  "自定义": "Пользовательский"
+ }
+diff --git a/app/locales/tr.json b/app/locales/tr.json
+index fdfaf7c..4a46e4a 100644
+--- a/app/locales/tr.json
++++ b/app/locales/tr.json
+@@ -56,5 +56,20 @@
+   "Maximize": "Büyüt / Geri yükle",
+   "Close": "Kapat",
+   "设置未获系统确认，已重新读取当前状态。": "Sistem değişikliği onaylamadı. Güncel durum yeniden okundu.",
+-  "等待内置扬声器，其他输出正常使用": "Dahili hoparlörler bekleniyor. Diğer çıkışlar kullanılabilir."
++  "等待内置扬声器，其他输出正常使用": "Dahili hoparlörler bekleniyor. Diğer çıkışlar kullanılabilir.",
++  "预设": "Ön ayarlar",
++  "增加动态": "Dinamik",
++  "强化低音": "Güçlü Bas",
++  "增强明亮": "Parlak",
++  "人声增强": "Sesler",
++  "对白增强": "Diyaloglar",
++  "更加沉浸": "İmersiyon",
++  "节奏紧凑": "Hızlı Tempolu",
++  "氛围强化": "Atmosferik",
++  "第一人称射击": "FPS Rekabeti",
++  "极限竞速": "Yarış",
++  "平衡语音": "Dengeli",
++  "通话清晰": "Temiz Sohbet",
++  "实况转播": "Canlı Yayın",
++  "自定义": "Özel"
+ }
+diff --git a/app/locales/zh_CN.json b/app/locales/zh_CN.json
+index 372f446..904f169 100644
+--- a/app/locales/zh_CN.json
++++ b/app/locales/zh_CN.json
+@@ -56,5 +56,20 @@
+   "Maximize": "最大化 / 还原",
+   "Close": "关闭",
+   "设置未获系统确认，已重新读取当前状态。": "设置未获系统确认，已重新读取当前状态。",
+-  "等待内置扬声器，其他输出正常使用": "等待内置扬声器，其他输出正常使用"
++  "等待内置扬声器，其他输出正常使用": "等待内置扬声器，其他输出正常使用",
++  "预设": "预设",
++  "增加动态": "增加动态",
++  "强化低音": "强化低音",
++  "增强明亮": "增强明亮",
++  "人声增强": "人声增强",
++  "对白增强": "对白增强",
++  "更加沉浸": "更加沉浸",
++  "节奏紧凑": "节奏紧凑",
++  "氛围强化": "氛围强化",
++  "第一人称射击": "第一人称射击",
++  "极限竞速": "极限竞速",
++  "平衡语音": "平衡语音",
++  "通话清晰": "通话清晰",
++  "实况转播": "实况转播",
++  "自定义": "自定义"
+ }
+diff --git a/app/locales/zh_TW.json b/app/locales/zh_TW.json
+index 04d06fd..ca72698 100644
+--- a/app/locales/zh_TW.json
++++ b/app/locales/zh_TW.json
+@@ -56,5 +56,20 @@
+   "Maximize": "最大化 / 還原",
+   "Close": "關閉",
+   "设置未获系统确认，已重新读取当前状态。": "設定未獲系統確認，已重新讀取目前狀態。",
+-  "等待内置扬声器，其他输出正常使用": "等待內建喇叭，其他輸出可正常使用"
++  "等待内置扬声器，其他输出正常使用": "等待內建喇叭，其他輸出可正常使用",
++  "预设": "預設",
++  "增加动态": "增加動態",
++  "强化低音": "強化低音",
++  "增强明亮": "增強明亮",
++  "人声增强": "人聲增強",
++  "对白增强": "對白增強",
++  "更加沉浸": "更加沉浸",
++  "节奏紧凑": "節奏緊湊",
++  "氛围强化": "氛圍強化",
++  "第一人称射击": "第一人稱射擊",
++  "极限竞速": "極限競速",
++  "平衡语音": "平衡語音",
++  "通话清晰": "通話清晰",
++  "实况转播": "實況轉播",
++  "自定义": "客製"
+ }
+diff --git a/app/main.py b/app/main.py
+index a68322d..cfa5fee 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -12,12 +12,34 @@ from PySide6.QtGui import QIcon, QPainter, QColor, QPen, QPixmap, QFont, QLinear
+ from PySide6.QtNetwork import QLocalServer, QLocalSocket
+ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+     QLabel, QPushButton, QCheckBox, QSlider, QFrame, QDialog, QToolButton, QButtonGroup, QSizePolicy, QStyle, QStyleOptionToolButton, QStylePainter, QComboBox, QMessageBox)
+-from backend import Backend, DATA, PROFILES
++from backend import Backend, DATA, EQ_BANDS, PROFILES
+ from i18n import Translations, LANGUAGES
+ from window_frame import decorate
+ 
+ ASSETS = Path(__file__).with_name('assets')
+ 
++# Vendor preset display order inside one profile's chip row (Custom last).
++EQ_PRESET_ORDER = ("Dynamic", "Heavy Bass", "Brilliant", "Vocals", "Dialogues", "Immersion",
++                   "Fast-paced", "Atmospheric", "FPS Competition", "Racing", "Balanced",
++                   "Clear Chat", "Livestream", "Custom")
++# Preset file names map to the display names the Windows Nahimic3 panel uses.
++EQ_PRESET_LABELS = {
++    "Dynamic": "增加动态",
++    "Heavy Bass": "强化低音",
++    "Brilliant": "增强明亮",
++    "Vocals": "人声增强",
++    "Dialogues": "对白增强",
++    "Immersion": "更加沉浸",
++    "Fast-paced": "节奏紧凑",
++    "Atmospheric": "氛围强化",
++    "FPS Competition": "第一人称射击",
++    "Racing": "极限竞速",
++    "Balanced": "平衡语音",
++    "Clear Chat": "通话清晰",
++    "Livestream": "实况转播",
++    "Custom": "自定义",
++}
++
+ def asset(name):
+     return QPixmap(str(ASSETS / name))
+ 
+@@ -38,6 +60,10 @@ QPushButton { background: transparent; border: 1px solid #405363; border-radius:
+ QPushButton:hover { border-color: #00dafa; color: #00dafa; }
+ QPushButton:focus, QToolButton:focus { border: 1px solid #00dafa; }
+ QPushButton:disabled { color: #536373; border-color: #283b4b; }
++QPushButton#eqPreset { padding: 6px 14px; color: #a2acb6; }
++QPushButton#eqPreset:hover { border-color: #00dafa; color: #00dafa; }
++QPushButton#eqPreset:checked { color: #ffffff; background: #164456; border-color: #00dafa; }
++QPushButton#eqPreset:disabled { color: #536373; border-color: #283b4b; }
+ QToolButton { background: transparent; border: none; color: #a2acb6; padding: 6px; }
+ QToolButton:hover { color: #e7faff; background: #1b3041; }
+ QToolButton:checked { color: #ffffff; background: #153140; }
+@@ -169,6 +195,9 @@ class Panel(QMainWindow):
+         self.settings_loaded = False
+         self.loaded_pid = None
+         self.values = {}; self.switches = {}; self.modes = {}; self.effect_images = {}
++        self.eq_presets = self.backend.eq_presets()
++        self.eq_preset_buttons = {}; self.eq_preset_values = {}
++        self.active_profile = None
+         self.setWindowTitle('Nahimic Linux')
+         self.setWindowIcon(QIcon(str(Path(__file__).with_name('nahimic.svg'))))
+         self.resize(1100, 690); self.setMinimumSize(1000, 660)
+@@ -276,9 +305,22 @@ class Panel(QMainWindow):
+             lower.addWidget(effect,1)
+         page.addLayout(lower,1)
+ 
+-        self.equalizer=QDialog(self); self.equalizer.setWindowTitle('均衡器'); self.equalizer.resize(750,470); self.equalizer.setMinimumSize(660,440)
++        self.equalizer=QDialog(self); self.equalizer.setWindowTitle('均衡器'); self.equalizer.resize(750,520); self.equalizer.setMinimumSize(660,470)
+         eq=QVBoxLayout(); eq.setContentsMargins(24,16,24,24); eq.setSpacing(20)
+         row=QHBoxLayout(); label=QLabel('均衡器'); label.setObjectName('effectTitle'); label.setWordWrap(True); row.addWidget(label); row.addStretch(); row.addWidget(self.effect_switch('kSet_EQState','启用均衡器')); eq.addLayout(row)
++        if self.eq_presets:
++            presets_row=QHBoxLayout(); presets_row.setSpacing(8)
++            caption=QLabel('预设'); caption.setObjectName('caption'); presets_row.addWidget(caption)
++            presets=QButtonGroup(self); presets.setExclusive(True)
++            for profile, entries in self.eq_presets.items():
++                entries=sorted(entries,key=lambda entry:(EQ_PRESET_ORDER.index(entry[0]) if entry[0] in EQ_PRESET_ORDER else len(EQ_PRESET_ORDER)-1,entry[0]))
++                for name,values in entries:
++                    button=QPushButton(EQ_PRESET_LABELS.get(name,name)); button.setObjectName('eqPreset')
++                    button.setCheckable(True); button.setCursor(Qt.PointingHandCursor); button.setVisible(False)
++                    button.clicked.connect(lambda checked,p=profile,v=values:self.apply_eq_preset(p,v))
++                    presets.addButton(button); presets_row.addWidget(button)
++                    self.eq_preset_buttons[(profile,name)]=button; self.eq_preset_values[(profile,name)]=values
++            presets_row.addStretch(); eq.addLayout(presets_row)
+         bands=QHBoxLayout(); bands.setSpacing(12)
+         scale=QVBoxLayout(); scale.setContentsMargins(0,25,0,25)
+         self.scale_high=QLabel('+12'); self.scale_low=QLabel('−12')
+@@ -347,6 +389,32 @@ class Panel(QMainWindow):
+     def show_equalizer(self):
+         self.equalizer.show(); self.equalizer.raise_(); self.equalizer.activateWindow()
+ 
++    def apply_eq_preset(self, profile, values):
++        if profile != self.active_profile or 'profile' in self.pending_keys():
++            return  # a profile switch is queued; discard the stale click
++        for name, value in values.items():
++            slider = self.values.get(name)
++            if slider is not None and not slider.isSliderDown():
++                slider.setValue(round(value))
++        self.submit(lambda: self.backend.set_settings(dict(values)), 'settings', 'eq_preset')
++
++    def refresh_eq_preset_buttons(self, profile):
++        self.active_profile = profile
++        bands = [setting for _, setting in EQ_BANDS]
++        curve = tuple(self.values[name].value() for name in bands) if all(name in self.values for name in bands) else None
++        matched = False
++        for (preset_profile, name), button in self.eq_preset_buttons.items():
++            visible = preset_profile == profile
++            button.setVisible(visible)
++            if not visible:
++                continue
++            values = self.eq_preset_values[(preset_profile, name)]
++            selected = curve is not None and tuple(round(values[name]) for name in bands) == curve
++            button.setChecked(selected)
++            matched = matched or selected
++        if not matched and curve is not None and (profile, 'Custom') in self.eq_preset_buttons:
++            self.eq_preset_buttons[(profile, 'Custom')].setChecked(True)
++
+     def show_preferences(self):
+         self.preferences.show()
+         self.preferences.raise_()
+@@ -490,6 +558,8 @@ class Panel(QMainWindow):
+         protected = self.pending_keys()
+         if 'profile' in protected:
+             return
++        if 'eq_preset' in protected:
++            return
+         for name, button in self.modes.items():
+             button.setChecked(name == state['profile'])
+         for name,slider in self.values.items():
+@@ -499,6 +569,7 @@ class Panel(QMainWindow):
+             if name not in protected: switch.setChecked(bool(state['settings'][name]['value']))
+         self.scale_high.setText(f"+{round(state['settings']['kSet_EQ31HzGainDB']['max'])}")
+         self.scale_low.setText(str(round(state['settings']['kSet_EQ31HzGainDB']['min'])))
++        self.refresh_eq_preset_buttons(state['profile'])
+         self.update_effect_images()
+         self.settings_loaded=True
+ 
+diff --git a/host/apo_control.cpp b/host/apo_control.cpp
+index 05e9695..512837e 100644
+--- a/host/apo_control.cpp
++++ b/host/apo_control.cpp
+@@ -200,8 +200,9 @@ int wmain(int argc,wchar_t** argv){
+     bool device_settings=argc==4 && wcscmp(argv[2],L"--device-settings")==0;
+     bool write_setting=argc==5 && wcscmp(argv[2],L"--set-setting")==0;
+     bool write_global_setting=argc==5 && wcscmp(argv[2],L"--set-global-setting")==0;
+-    if(argc!=2 && !settings && !global_settings && !eq_presets && !applications && !app_profile && !device_settings && !write_setting && !write_global_setting && !select_profile){
+-        std::fprintf(stderr,"usage: apo_control.exe ORIGINAL_API_DLL [--profile GUID | --global-profile GUID | --application-profile GUID | --settings | --global-settings | --eq-presets | --applications | --application-profile-for APP_GUID PROFILE_GUID | --device-settings GUID | --set-setting NAME VALUE | --set-global-setting NAME VALUE]\n");return 2;
++    bool write_settings=argc>=5 && (argc%2)==1 && wcscmp(argv[2],L"--set-settings")==0;
++    if(argc!=2 && !settings && !global_settings && !eq_presets && !applications && !app_profile && !device_settings && !write_setting && !write_global_setting && !write_settings && !select_profile){
++        std::fprintf(stderr,"usage: apo_control.exe ORIGINAL_API_DLL [--profile GUID | --global-profile GUID | --application-profile GUID | --settings | --global-settings | --eq-presets | --applications | --application-profile-for APP_GUID PROFILE_GUID | --device-settings GUID | --set-setting NAME VALUE | --set-settings NAME VALUE [NAME VALUE ...] | --set-global-setting NAME VALUE]\n");return 2;
+     }
+     if(!dedicated_prefix()){
+         std::fprintf(stderr,"Requires an existing dedicated Nahimic Wine prefix\n");return 1;
+@@ -274,11 +275,18 @@ int wmain(int argc,wchar_t** argv){
+             }
+             break;
+         }
+-        if(settings || global_settings || write_setting || write_global_setting){
++        if(settings || global_settings || write_setting || write_global_setting || write_settings){
+             ControlStore* store=nullptr;
+             hr=(global_settings || write_global_setting)?control->OpenStore(&store):profile->OpenStore(&store);
+             if(!check("OpenSettingsStore",hr))break;
+-            valid=(write_setting || write_global_setting)?set_setting(store,argv[3],argv[4]):describe_store(store);
++            if(write_settings){
++                // A preset is one write per band; keep them in a single
++                // process so the store applies them as one update.
++                for(int i=3;i<argc;i+=2){
++                    valid=set_setting(store,argv[i],argv[i+1]);
++                    if(!valid)break;
++                }
++            }else valid=(write_setting || write_global_setting)?set_setting(store,argv[3],argv[4]):describe_store(store);
+             store->Release();break;
+         }
+         if(select_profile){
+diff --git a/packaging/extract_runtime.py b/packaging/extract_runtime.py
+index f2b59a2..c509db2 100644
+--- a/packaging/extract_runtime.py
++++ b/packaging/extract_runtime.py
+@@ -3,11 +3,13 @@ import hashlib
+ import io
+ import json
+ from pathlib import Path
++import re
+ import shutil
+ import struct
+ import subprocess
+ import sys
+ import tempfile
++import urllib.parse
+ import zipfile
+ 
+ 
+@@ -47,7 +49,9 @@ def extract(swc, settings, asrock, output):
+         if asrock:
+             # The ASRock vendor bundle (Nahimic v1.10.11 APO4) is an Inno Setup
+             # installer whose %TEMP payload carries the board-specific restore
+-            # tool. Its embedded ZIP holds the EXT product settings cabinet.
++            # tool and the Nahimic3 app bundle. The restore tool's embedded ZIP
++            # holds the EXT product settings cabinet; the app bundle's x64 appx
++            # carries the vendor equalizer preset curves.
+             with zipfile.ZipFile(asrock) as installer:
+                 member = next(m for m in installer.namelist() if m.lower().endswith(".exe"))
+                 setup = work / "asrock-installer" / member
+@@ -55,6 +59,7 @@ def extract(swc, settings, asrock, output):
+                 setup.write_bytes(installer.read(member))
+             subprocess.run(["innoextract", "-q",
+                             "-I", "%TEMP/Nahimic3_apo4_1_10_11/ASRock-NahimicRestoreTool-APO4-SWCv5.0.6.0-EXTv1.4.0.0.exe",
++                            "-I", "%TEMP/Nahimic3_apo4_1_10_11/41aa0a238f9244e8baf146981dc818ee.appxbundle",
+                             "--output-dir", str(work / "asrock"), str(setup)], check=True)
+             restored = next((work / "asrock").rglob("ASRock-NahimicRestoreTool*.exe"))
+             data = restored.read_bytes()
+@@ -66,12 +71,28 @@ def extract(swc, settings, asrock, output):
+             with zipfile.ZipFile(io.BytesIO(data[start:end + 22 + comment])) as archive:
+                 (work / "settings-asrock.cab").write_bytes(archive.read("EXT\\NH3ProductSettings.cab"))
+             subprocess.run(["cabextract", "-q", "-d", str(work / "factory-asrock"), str(work / "settings-asrock.cab")], check=True)
++            # Settings/v1/EQPresets/<Profile>/OriginalSettings/<Preset>.json are
++            # the curves the Windows Nahimic3 panel offers per audio profile.
++            bundle = next((work / "asrock").rglob("*.appxbundle"))
++            with zipfile.ZipFile(bundle) as appxbundle:
++                application = next(name for name in appxbundle.namelist() if re.search(r"_x64\.appx$", name))
++                with zipfile.ZipFile(io.BytesIO(appxbundle.read(application))) as appx:
++                    prefix = "Settings/v1/EQPresets/"
++                    for member in appx.namelist():
++                        parts = member[len(prefix):].split("/") if member.startswith(prefix) else []
++                        if len(parts) == 3 and parts[1] == "OriginalSettings" and parts[2].endswith(".json"):
++                            preset = urllib.parse.unquote(parts[2][:-len(".json")])
++                            target = work / "eqpresets" / parts[0] / (preset + ".json")
++                            target.parent.mkdir(parents=True, exist_ok=True)
++                            target.write_bytes(appx.read(member))
+         for name, expected in manifest.items():
+             group, relative = name.split("/", 1)
+             source = work / ("swc" if group == "vendor" else group) / relative
+             if not source.exists():
+                 if not settings and group in ("factory", "vendor-apo3", "factory-apo3"):
+                     continue  # generic AIstone/MSI settings were not supplied
++                if not asrock and group in ("factory-asrock", "eqpresets"):
++                    continue  # ASRock runtime data was not supplied
+                 raise ValueError("Runtime file missing: " + name)
+             if hashlib.sha256(source.read_bytes()).hexdigest() != expected:
+                 raise ValueError("Runtime checksum mismatch: " + name)
+diff --git a/packaging/runtime-sha256.json b/packaging/runtime-sha256.json
+index 6a001c4..431ac59 100644
+--- a/packaging/runtime-sha256.json
++++ b/packaging/runtime-sha256.json
+@@ -34,5 +34,22 @@
+   "factory-apo3/AudioProfiles/Music.nsx": "34a34c4470197e885562b23c72e98ddcaedb6c4307fd06cc6c4a195de052684e",
+   "factory-apo3/AudioProfiles/Movie.nsx": "7fcb5a607eccadda15a40c27db5cf21b8c6392afc71f5a7bcf7e48d6cb5719e6",
+   "factory-apo3/AudioProfiles/Gaming.nsx": "b79d40b7b877739fff1641f5dfbe8196a607d6f9cee958154ef8f95ed27c96eb",
+-  "factory-apo3/AudioProfiles/Communication.nsx": "d5d741ad0c25802ed55e56351301b43f0190d47f4a8731a068a21f67db1256b4"
++  "factory-apo3/AudioProfiles/Communication.nsx": "d5d741ad0c25802ed55e56351301b43f0190d47f4a8731a068a21f67db1256b4",
++  "eqpresets/Communication/Balanced.json": "b86a696e77e6ada21364eeb0ca85bb65d228f197761fd3330a8ea3be7d92fad7",
++  "eqpresets/Communication/Clear Chat.json": "d7ae09e0c5762ea25619852c7d4772c826ed6ecfbe41402aa9b6be1196f701a5",
++  "eqpresets/Communication/Custom.json": "7947cdb9d55edea7a22fe8ca53a9aa09518c1c9a7bc0893a174f92da31aca5ed",
++  "eqpresets/Communication/Livestream.json": "7541c4a8ab33f006a8e76ba43d726b0c3a49fd9baa3707899ec3d0bdf5d0046e",
++  "eqpresets/Gaming/Atmospheric.json": "2a893e744e7216cad07ba63d6e3028a845ec33f46af3a61262a24a8f517a193c",
++  "eqpresets/Gaming/Custom.json": "7947cdb9d55edea7a22fe8ca53a9aa09518c1c9a7bc0893a174f92da31aca5ed",
++  "eqpresets/Gaming/FPS Competition.json": "48e0c987a37d2ae6432777f01442bf006b319d354f228030a68d55abc0c7b1c3",
++  "eqpresets/Gaming/Fast-paced.json": "419cafdcfd004afd33a3448768321a1ee4f4711f6523c2eaefeaee19a6851821",
++  "eqpresets/Gaming/Racing.json": "023c5e5829f7b33ec1d22d36e54d02300d2a9ba5c5b2043bc38e622a4aaa6607",
++  "eqpresets/Movie/Custom.json": "7947cdb9d55edea7a22fe8ca53a9aa09518c1c9a7bc0893a174f92da31aca5ed",
++  "eqpresets/Movie/Dialogues.json": "4575f07894e29e5f95f4ba9d4941c98af670cfe8e7ed94474e99e117f2a377da",
++  "eqpresets/Movie/Immersion.json": "0091814077f6643b904ae2a1e281acbae04a08b92c286f0e3bb1414376d8e485",
++  "eqpresets/Music/Brilliant.json": "5bf7f9f788bf448d3ad14ff412abfc1b67ea179c51c863519451071bda1ff2b2",
++  "eqpresets/Music/Custom.json": "7947cdb9d55edea7a22fe8ca53a9aa09518c1c9a7bc0893a174f92da31aca5ed",
++  "eqpresets/Music/Dynamic.json": "93673b94a758d298a4a3c2744c2006c43cf5d475a4df57dbbc43bf8191d76488",
++  "eqpresets/Music/Heavy Bass.json": "bb476716a4f09075e8f1cbc8e25130968ce6814dbcc37e844743c404815e7c2d",
++  "eqpresets/Music/Vocals.json": "4c367d11dca4f3a9ac41e38d445355af6a0652de553d09d28389a4dc8abd32e3"
+ }
+diff --git a/tests/test_eq_presets.py b/tests/test_eq_presets.py
+new file mode 100644
+index 0000000..722e4e9
+--- /dev/null
++++ b/tests/test_eq_presets.py
+@@ -0,0 +1,195 @@
++"""Vendor equalizer presets: file mapping, chip application and optimistic UI."""
++import copy
++from concurrent.futures import Future
++import json
++import os
++from pathlib import Path
++import sys
++import tempfile
++import unittest
++from unittest.mock import patch
++
++os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
++sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'app'))
++import backend as backend_module
++from backend import Backend, EQ_BANDS
++from PySide6.QtWidgets import QApplication
++from main import Panel
++
++BAND_SETTINGS = [setting for _, setting in EQ_BANDS]
++# Curves exactly as shipped in Settings/v1/EQPresets of the Nahimic3 app.
++HEAVY_BASS = (2, 7, 5, 0, -1, 0, 0, 0, 2, 1)
++DYNAMIC = (1, 5, 2, -2, -2, 0, 0, 1, 5, 2)
++FLAT = (0,) * 10
++
++
++def preset_files(directory):
++    music = directory / 'eqpresets' / 'Music'
++    music.mkdir(parents=True)
++    for name, curve in (('Heavy Bass', HEAVY_BASS), ('Dynamic', DYNAMIC), ('Custom', FLAT)):
++        data = {source: value for (source, _), value in zip(EQ_BANDS, curve)}
++        (music / (name + '.json')).write_text(json.dumps(data))
++    gaming = directory / 'eqpresets' / 'Gaming'
++    gaming.mkdir(parents=True)
++    data = {source: value for (source, _), value in zip(EQ_BANDS, (-6, -1, 3, 1, 0, 0, 1, 5, 6, 5))}
++    (gaming / 'Fast-paced.json').write_text(json.dumps(data))
++    return directory
++
++
++class ManualExecutor:
++    def __init__(self, **kwargs): self.calls = {}
++    def submit(self, function):
++        future = Future(); self.calls[future] = function; return future
++    def shutdown(self, **kwargs): pass
++
++
++class PresetAudioBackend:
++    def __init__(self, presets):
++        self.presets = presets
++        self.data = {'profile': 'Music', 'settings': {}}
++        self.state = {'ready': True, 'service': 'active', 'autostart': True, 'instance': 1,
++                      'enabled': True, 'active': True, 'volume': 50, 'muted': False}
++        self.writes = []
++        self.reject = None
++    def status(self): return copy.deepcopy(self.state)
++    def settings(self): return copy.deepcopy(self.data)
++    def eq_presets(self): return copy.deepcopy(self.presets)
++    def set_setting(self, key, value):
++        self.writes.append((key, value))
++        if self.reject == key: raise RuntimeError('device rejected write')
++        self.data['settings'][key]['value'] = value
++        return self.settings()
++    def set_settings(self, values):
++        self.writes.extend(values.items())
++        if self.reject in values: raise RuntimeError('device rejected write')
++        for key, value in values.items():
++            self.data['settings'][key]['value'] = value
++        return self.settings()
++    def profile(self, value):
++        if self.reject == 'profile': raise RuntimeError('profile rejected')
++        self.data['profile'] = value
++        return self.settings()
++    def mute(self, value): self.state['muted'] = value
++    def volume(self, value): self.state['volume'] = value
++    def enabled(self, value): self.state['enabled'] = value
++    def autostart(self, value): self.state['autostart'] = value
++
++
++class PresetLoadingTest(unittest.TestCase):
++    def test_vendor_files_map_to_engine_settings(self):
++        with tempfile.TemporaryDirectory(prefix='nahimic-eq-', dir='/tmp') as directory:
++            share = preset_files(Path(directory))
++            (share / 'eqpresets' / 'Music' / 'Broken.json').write_text(json.dumps({'EQ32HzGainDB': 1}))
++            (share / 'eqpresets' / 'Music' / 'notes.txt').write_text('')
++            with patch.object(backend_module, 'SHARE', share):
++                presets = Backend().eq_presets()
++            self.assertEqual(set(presets), {'Music', 'Gaming'})
++            names = [name for name, _ in presets['Music']]
++            self.assertEqual(names, ['Custom', 'Dynamic', 'Heavy Bass'])  # alphabetical
++            values = dict(presets['Music'])['Heavy Bass']
++            self.assertEqual([values[name] for name in BAND_SETTINGS], list(HEAVY_BASS))
++            self.assertEqual(values['kSet_EQ31HzGainDB'], 2)  # EQ32HzGainDB band centre
++
++    def test_absent_share_disables_presets(self):
++        with tempfile.TemporaryDirectory(prefix='nahimic-eq-', dir='/tmp') as directory:
++            with patch.object(backend_module, 'SHARE', Path(directory)):
++                self.assertEqual(Backend().eq_presets(), {})
++
++
++class EqPresetUiTest(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls): cls.app = QApplication.instance() or QApplication([])
++    def setUp(self):
++        presets = {'Music': [('Heavy Bass', {name: value for name, value in zip(BAND_SETTINGS, HEAVY_BASS)}),
++                             ('Dynamic', {name: value for name, value in zip(BAND_SETTINGS, DYNAMIC)}),
++                             ('Custom', {name: value for name, value in zip(BAND_SETTINGS, FLAT)})],
++                   'Gaming': [('Fast-paced', {name: value for name, value in zip(BAND_SETTINGS, (-6, -1, 3, 1, 0, 0, 1, 5, 6, 5))})]}
++        self.audio = PresetAudioBackend(presets)
++        with patch('main.Backend', lambda: self.audio), patch('main.ThreadPoolExecutor', ManualExecutor):
++            self.panel = Panel()
++        p = self.panel; p.timer.stop(); p.status_timer.stop()
++        for name in p.values:
++            p.backend.data['settings'][name] = {'min': -12, 'max': 12, 'value': 0}
++        for name in p.switches:
++            p.backend.data['settings'][name] = {'min': 0, 'max': 1, 'value': 1}
++        self.drain()
++    def tearDown(self):
++        self.panel.busy_timer.stop(); self.panel.close(); self.panel.deleteLater()
++    def finish(self, result=None):
++        p = self.panel; future = p.pending[0]
++        try: future.set_result(p.pool.calls.pop(future)() if result is None else result)
++        except Exception as error: future.set_exception(error)
++        p.poll()
++    def drain(self):
++        for _ in range(20):
++            if self.panel.pending is None: return
++            self.finish()
++        self.fail('queue failed to settle')
++    def edit_band(self, value, key='kSet_EQ31HzGainDB'):
++        slider = self.panel.values[key]; slider.setValue(value); slider.sliderReleased.emit()
++
++    def test_preset_click_writes_all_ten_bands_and_selects_the_chip(self):
++        p = self.panel
++        self.assertFalse(p.eq_preset_buttons[('Music', 'Heavy Bass')].isHidden())
++        self.assertTrue(p.eq_preset_buttons[('Music', 'Custom')].isChecked())  # flat curve
++        p.eq_preset_buttons[('Music', 'Heavy Bass')].click()
++        for name, value in zip(BAND_SETTINGS, HEAVY_BASS):
++            self.assertEqual(p.values[name].value(), value)
++        self.drain()
++        self.assertEqual(p.backend.writes, list(zip(BAND_SETTINGS, HEAVY_BASS)))
++        self.assertTrue(p.eq_preset_buttons[('Music', 'Heavy Bass')].isChecked())
++        self.assertFalse(p.eq_preset_buttons[('Music', 'Custom')].isChecked())
++
++    def test_rapid_preset_clicks_coalesce_to_the_last_choice(self):
++        p = self.panel
++        p.eq_preset_buttons[('Music', 'Heavy Bass')].click()
++        p.eq_preset_buttons[('Music', 'Dynamic')].click()
++        p.eq_preset_buttons[('Music', 'Heavy Bass')].click()
++        self.assertEqual(len(p.jobs), 1)
++        self.finish()
++        self.assertEqual(len(p.backend.writes), 10)  # the in-flight write ran once
++        self.drain()
++        self.assertEqual(p.backend.writes, list(zip(BAND_SETTINGS, HEAVY_BASS)) * 2)
++        self.assertTrue(p.eq_preset_buttons[('Music', 'Heavy Bass')].isChecked())
++
++    def test_manual_edit_switches_the_selection_back_to_custom(self):
++        p = self.panel
++        p.eq_preset_buttons[('Music', 'Heavy Bass')].click()
++        self.drain()
++        self.edit_band(4)
++        self.drain()
++        self.assertEqual(p.values['kSet_EQ31HzGainDB'].value(), 4)
++        self.assertTrue(p.eq_preset_buttons[('Music', 'Custom')].isChecked())
++        self.assertFalse(p.eq_preset_buttons[('Music', 'Heavy Bass')].isChecked())
++
++    def test_profile_switch_swaps_the_visible_chips(self):
++        p = self.panel
++        self.assertTrue(p.eq_preset_buttons[('Gaming', 'Fast-paced')].isHidden())
++        p.modes['Gaming'].click()
++        self.drain()
++        self.assertFalse(p.eq_preset_buttons[('Gaming', 'Fast-paced')].isHidden())
++        self.assertTrue(p.eq_preset_buttons[('Music', 'Heavy Bass')].isHidden())
++
++    def test_stale_preset_click_after_a_queued_profile_switch_is_discarded(self):
++        p = self.panel
++        p.modes['Gaming'].click()
++        p.eq_preset_buttons[('Music', 'Heavy Bass')].click()
++        self.assertEqual(p.pending[2], 'profile')
++        self.drain()
++        self.assertEqual(p.backend.data['profile'], 'Gaming')
++        self.assertEqual(p.backend.writes, [])  # nothing written into the new profile
++        self.assertFalse(p.eq_preset_buttons[('Gaming', 'Fast-paced')].isHidden())
++
++    def test_failed_preset_is_read_back_and_the_error_stays_visible(self):
++        p = self.panel
++        p.backend.reject = 'kSet_EQ31HzGainDB'
++        p.eq_preset_buttons[('Music', 'Heavy Bass')].click()
++        self.drain()
++        self.assertIn('device rejected write', p.status.text())
++        self.assertEqual(p.values['kSet_EQ31HzGainDB'].value(), 0)
++        self.assertTrue(p.controls.isEnabled())
++        p.refresh(); self.drain()
++        self.assertIn('device rejected write', p.status.text())
++
++
++if __name__ == '__main__': unittest.main()
+diff --git a/tests/test_optimistic_ui.py b/tests/test_optimistic_ui.py
+index 1c7af41..4086cd1 100644
+--- a/tests/test_optimistic_ui.py
++++ b/tests/test_optimistic_ui.py
+@@ -27,11 +27,18 @@ class AudioBackend:
+         self.reject = None
+     def status(self): return copy.deepcopy(self.state)
+     def settings(self): return copy.deepcopy(self.data)
++    def eq_presets(self): return {}
+     def set_setting(self, key, value):
+         self.writes.append((key,value))
+         if self.reject == key: raise RuntimeError('device rejected write')
+         self.data['settings'][key]['value'] = value
+         return self.settings()
++    def set_settings(self, values):
++        self.writes.extend(values.items())
++        if self.reject in values: raise RuntimeError('device rejected write')
++        for key, value in values.items():
++            self.data['settings'][key]['value'] = value
++        return self.settings()
+     def profile(self, value):
+         if self.reject == 'profile': raise RuntimeError('profile rejected')
+         self.data['profile']=value

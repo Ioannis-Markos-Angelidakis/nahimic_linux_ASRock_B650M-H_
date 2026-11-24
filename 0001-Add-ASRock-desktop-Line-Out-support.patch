@@ -1,0 +1,340 @@
+diff --git a/README.en.md b/README.en.md
+index 17d029f..27c8517 100644
+--- a/README.en.md
++++ b/README.en.md
+@@ -72,6 +72,22 @@ The build extracts APO3 files from the same pinned restore-tool archive as the
+ existing settings. APO3 and APO4 keep separate runtime files and factory
+ settings. The control panel uses the same controls; APO3 Clarity maps to Voice.
+ 
++## ASRock desktop boards Line Out
++
++ASRock boards covered by the official [ASRock Nahimic(v1.10.11\_APO4)](https://download.asrock.com/Utility/Others/Nahimic(v1.10.11_APO4).zip)
++extension driver use its APO4 `Generic_ExternalSpeakers` profile. The vendor
++ships one generic external-speakers tuning for every board in `AVoluteNH3Ext.inf`,
++so all HDA subsystems listed there are matched (`18491897` verified on a
++B650M-H/M.2+ with Realtek ALC897; `18492897`, `18496899`, `18498899` and the
++ALC1220 boards `18492229`–`1849222d` follow the INF). Line Out ports are
++accepted across PipeWire path profiles and UCM naming; plugging in headphones
++bypasses the effects, and HDMI and other outputs keep their normal paths. The
++build extracts the settings from the ASRock installer with `innoextract`, and
++the ASRock factory settings live in `factory-asrock` beside the shared APO4
++vendor runtime. The generic AIstone/MSI restore-tool settings become optional
++at build time, so package builders that cannot reach the Nahimic support site
++can still produce a working desktop build.
++
+ ## Contribute device support
+ 
+ Read [AGENTS.md](AGENTS.md) first. Include your laptop model, audio hardware IDs, PipeWire output information, and results from testing effect switching, settings persistence, service restarts, and continuous playback. Each model needs a configuration matching its hardware. New device support should be verified on the actual machine before submitting a pull request.
+diff --git a/README.md b/README.md
+index a84ed5b..8b6b705 100644
+--- a/README.md
++++ b/README.md
+@@ -64,6 +64,10 @@ MSI MEG X570 UNIFY（MS-7C35，Realtek ALC1220，子系统 ID `1462CC35`）使
+ 
+ APO3 文件来自现有固定版本恢复工具归档，与 APO4 的运行组件、原厂设置分开保存。控制面板保持现有操作，APO3 的 Clarity 对应人声调节。
+ 
++## ASRock 台式机主板线路输出
++
++[ASRock Nahimic(v1.10.11_APO4)](https://download.asrock.com/Utility/Others/Nahimic(v1.10.11_APO4).zip) 扩展驱动覆盖的 ASRock 主板使用其 APO4 `Generic_ExternalSpeakers` 配置。厂商对所有 `AVoluteNH3Ext.inf` 所列主板共用同一份外接扬声器调校，因此全部 HDA 子系统均在匹配之列（`18491897` 已在 B650M-H/M.2+（Realtek ALC897）上验证；`18492897`、`18496899`、`18498899` 及 ALC1220 主板 `18492229`–`1849222d` 依据 INF）。线路输出端口兼容 PipeWire path 配置与 UCM 命名；插入耳机时旁路音效，HDMI 等其他输出保持原有路径。构建使用 `innoextract` 从 ASRock 安装包提取设置，ASRock 原厂设置保存在 `factory-asrock`，与 APO4 共享运行组件并列。通用 AIstone/MSI 恢复工具设置在构建时变为可选，无法访问 Nahimic 支持站点的打包者仍可完成台式机构建。
++
+ ## 贡献设备适配
+ 
+ 请先阅读 [AGENTS.md](AGENTS.md)。提交机器型号、声卡硬件 ID、PipeWire 输出信息，以及音效开关、参数保存、服务重启和连续播放的测试结果。每个型号使用与硬件匹配的配置，新增支持以本机验证为依据。
+diff --git a/host/desktop_audio.py b/host/desktop_audio.py
+index fc203fc..9ece427 100644
+--- a/host/desktop_audio.py
++++ b/host/desktop_audio.py
+@@ -36,6 +36,28 @@ SUPPORTED_SPEAKERS = {
+ # Exact desktop codec/subsystem and Line Out only; never apply laptop tuning.
+ LINE_OUT_COMPONENT = "hda:10ec1220,1462cc35,"
+ 
++# ASRock desktop boards covered by the official ASRock Nahimic(v1.10.11_APO4)
++# extension driver (AVoluteNH3Ext.inf, EXT v1.4.0.0). The vendor ships one
++# generic external-speakers profile for all of them, so every HDA subsystem
++# listed in that INF maps to the same factory settings. 18491897 is verified
++# on a B650M-H/M.2+ (Realtek ALC897); the rest follow the INF.
++ASROCK_LINE_OUT_COMPONENTS = (
++    "hda:10ec0897,18491897,",  # verified: ASRock B650M-H/M.2+ (ALC897)
++    "hda:10ec0897,18492897,",
++    "hda:10ec0897,18496899,",
++    "hda:10ec0897,18498899,",
++    "hda:10ec1220,18492229,",
++    "hda:10ec1220,1849222a,",
++    "hda:10ec1220,1849222b,",
++    "hda:10ec1220,1849222c,",
++    "hda:10ec1220,1849222d,",
++)
++
++
++def asrock_line_out(sink):
++    components = sink.get("properties", {}).get("alsa.components", "").lower()
++    return any(prefix in components for prefix in ASROCK_LINE_OUT_COMPONENTS)
++
+ def runtime_generation(sink):
+     return "apo3" if LINE_OUT_COMPONENT in sink.get("properties", {}).get("alsa.components", "").lower() else "apo4"
+ 
+@@ -43,6 +65,8 @@ def runtime_generation(sink):
+ def runtime_files(sink):
+     if runtime_generation(sink) == "apo3":
+         return "vendor-apo3/NAHIMICV3apo.dll", "vendor-apo3/NAHIMICV3NSControl.dll", "factory-apo3"
++    if asrock_line_out(sink):
++        return "vendor/NahimicAPO4.dll", "vendor/NahimicAPO4API.dll", "factory-asrock"
+     return "vendor/NahimicAPO4.dll", "vendor/NahimicAPO4API.dll", "factory"
+ 
+ 
+@@ -50,11 +74,17 @@ def device_settings(sink):
+     components = sink.get("properties", {}).get("alsa.components", "").lower()
+     if LINE_OUT_COMPONENT in components:
+         return "Generic_ExternalSpeakers.nsx"
++    if asrock_line_out(sink):
++        return "Generic_ExternalSpeakers.nsx"
+     return next((settings for prefix, settings in SUPPORTED_SPEAKERS.items()
+                  if prefix in components), None)
+ 
+ 
+ def speaker_endpoint(sink):
++    if asrock_line_out(sink):
++        # Desktop Line Out across PipeWire path profiles and UCM naming.
++        return sink.get("active_port") in ("analog-output-lineout", "analog-output-speaker",
++                                           "[Out] Line Out", "[Out] Speaker")
+     return (device_settings(sink) is not None
+             and sink.get("active_port") == ("analog-output-lineout" if runtime_generation(sink) == "apo3" else "[Out] Speaker"))
+ 
+@@ -96,6 +126,10 @@ def headphones_plugged(sink, cards):
+         kind = str(port.get("type", "")).lower()
+         if kind in ("headphone", "headphones") or (kind == "headset" and name.startswith("[Out]")):
+             return True
++        # Path-configured HDA cards may report no port type; the stable port
++        # name still identifies a connected headphone jack.
++        if not kind and "headphone" in name.lower() and name.startswith(("analog-output", "[Out]")):
++            return True
+     return False
+ 
+ 
+diff --git a/host/entry.py b/host/entry.py
+index 4cf4769..ee70ddb 100644
+--- a/host/entry.py
++++ b/host/entry.py
+@@ -20,7 +20,7 @@ def detect():
+     sinks = json.loads(pulse("--format=json", "list", "sinks"))
+     matches = [s for s in sinks if speaker_endpoint(s)]
+     if len(matches) != 1:
+-        supported = "、".join(settings.split("_")[0] for settings in SUPPORTED_SPEAKERS.values()) + "、1462CC35"
++        supported = "、".join(settings.split("_")[0] for settings in SUPPORTED_SPEAKERS.values()) + "、1462CC35、18491897等ASRock EXT INF所列主板"
+         raise RuntimeError(f"未找到受支持的扬声器或线路输出（{supported}）。请选择扬声器输出后重试。")
+     return matches[0]["name"]
+ 
+diff --git a/packaging/PKGBUILD b/packaging/PKGBUILD
+index 927ffc5..a28d9dd 100644
+--- a/packaging/PKGBUILD
++++ b/packaging/PKGBUILD
+@@ -2,27 +2,30 @@
+ pkgname=nahimic-linux
+ pkgver=0.3.3
+ pkgrel=1
+-pkgdesc='Nahimic speaker effects and equalizer for supported Linux laptops'
++pkgdesc='Nahimic speaker effects and equalizer for supported Linux laptops and desktop boards'
+ arch=('x86_64')
+ url='https://github.com/wearzdk/nahimic-linux'
+ license=('MIT' 'LicenseRef-Nahimic')
+ depends=('python' 'pyside6' 'wine' 'pipewire' 'pipewire-pulse' 'wireplumber>=0.5' 'libpulse' 'systemd' 'hicolor-icon-theme' 'bash' 'glibc')
+-makedepends=('mingw-w64-gcc' 'pkgconf' 'cabextract' 'git')
++makedepends=('mingw-w64-gcc' 'pkgconf' 'cabextract' 'git' 'innoextract')
+ install=nahimic-linux.install
+ options=('!strip' '!debug')
+ source=("$pkgname::git+$url#tag=v$pkgver"
+         'nahimic-apo4-4.14.cab::https://catalog.s.download.windowsupdate.com/d/msdownload/update/driver/drvs/2025/06/5038101c-bafc-45b6-b338-d086f6877059_8ba41f8fd185d004f674891c937eb6b815acb443.cab'
+         'nahimic-runtime-settings.exe::https://nahimic.helprace.com/resources/SdHjE1CwBkqCwL1qTng83XvmSgyUM3WU8bA3F21ZCfca-wMam1lcLqCrQgAIHtE1DyfpwdnFPjQ5DuRdOgpXLg%7E%7E/GenericNahimicRestoreTool.exe'
++        'nahimic-asrock-apo4.zip::https://download.asrock.com/Utility/Others/Nahimic(v1.10.11_APO4).zip'
+         'nahimic-linux.install')
+-noextract=('nahimic-apo4-4.14.cab' 'nahimic-runtime-settings.exe')
++noextract=('nahimic-apo4-4.14.cab' 'nahimic-runtime-settings.exe' 'nahimic-asrock-apo4.zip')
+ sha256sums=('SKIP'
+             'f3b1aae44826f85045cff8e085367dd8b48ffb3510e074adf552cc8eafbf8bde'
+             '5f9c4d9eda54b7f946e331740354f01c043f25408d7053b4c23327c1b5b0a74a'
++            '262bc2f10e8594197394f70759eb365238dba7270219089d3916083452111e29'
+             'f8206f52fd53c647e8ab1707545d5d977a2dd1495ba76b1f24abdb4faf35ce6e')
+ 
+ prepare() {
+     python "$srcdir/$pkgname/packaging/extract_runtime.py" \
+-        "$srcdir/nahimic-apo4-4.14.cab" "$srcdir/nahimic-runtime-settings.exe" "$srcdir/runtime"
++        "$srcdir/nahimic-apo4-4.14.cab" "$srcdir/nahimic-runtime-settings.exe" \
++        "$srcdir/nahimic-asrock-apo4.zip" "$srcdir/runtime"
+ }
+ build() {
+     make -C "$srcdir/$pkgname"
+@@ -31,5 +34,5 @@ build() {
+ package() {
+     make -C "$srcdir/$pkgname" DESTDIR="$pkgdir" install
+     install -d "$pkgdir/usr/share/nahimic-linux"
+-    cp -r "$srcdir/runtime/vendor" "$srcdir/runtime/factory" "$srcdir/runtime/vendor-apo3" "$srcdir/runtime/factory-apo3" "$pkgdir/usr/share/nahimic-linux/"
++    cp -r "$srcdir/runtime/vendor" "$srcdir/runtime/factory" "$srcdir/runtime/vendor-apo3" "$srcdir/runtime/factory-apo3" "$srcdir/runtime/factory-asrock" "$pkgdir/usr/share/nahimic-linux/"
+ }
+diff --git a/packaging/extract_runtime.py b/packaging/extract_runtime.py
+index 2e164f3..f2b59a2 100644
+--- a/packaging/extract_runtime.py
++++ b/packaging/extract_runtime.py
+@@ -11,41 +11,68 @@ import tempfile
+ import zipfile
+ 
+ 
+-def extract(swc, settings, output):
++def extract(swc, settings, asrock, output):
+     output = Path(output)
+     output.mkdir(parents=True, exist_ok=True)
+     manifest = json.loads(Path(__file__).with_name("runtime-sha256.json").read_text())
+     with tempfile.TemporaryDirectory(prefix="nahimic-runtime-", dir="/tmp") as temporary:
+         work = Path(temporary)
+         subprocess.run(["cabextract", "-q", "-d", str(work / "swc"), str(swc)], check=True)
+-        data = Path(settings).read_bytes()
+-        start = data.find(b"PK\x03\x04")
+-        end = data.find(b"PK\x05\x06", start)
+-        if start < 0 or end < 0:
+-            raise ValueError("Runtime settings archive is absent")
+-        comment = struct.unpack_from("<H", data, end + 20)[0]
+-        with zipfile.ZipFile(io.BytesIO(data[start:end + 22 + comment])) as archive:
+-            # Both AIstone APO4 cabinets carry the same global, metadata and
+-            # profile files and only differ in their Devices/*.nsx. The cabinet
+-            # of the already verified hardware is extracted last so the pinned
+-            # manifest keeps describing those shared files.
+-            settings_cabs = {
+-                "settings-nh3.cab": "Drivers\\EXT\\AIstone\\APO4\\NH3ProductSettings.cab",
+-                "settings-cnxt.cab": "Drivers\\EXT\\AIstone\\APO4\\NH3CNXTProductSettings.cab",
+-            }
+-            (work / "settings-msi-apo3.cab").write_bytes(archive.read("Drivers\\EXT\\MSI\\APO3\\NH3ProductSettings.cab"))
+-            subprocess.run(["cabextract", "-q", "-d", str(work / "factory-apo3"), str(work / "settings-msi-apo3.cab")], check=True)
+-            for member in archive.namelist():
+-                if member.startswith("Drivers\\APO3\\") and member.endswith(".dll"):
+-                    target = work / "vendor-apo3" / member.split("\\")[-1]
+-                    target.parent.mkdir(exist_ok=True)
+-                    target.write_bytes(archive.read(member))
+-            for name, member in settings_cabs.items():
+-                (work / name).write_bytes(archive.read(member))
+-                subprocess.run(["cabextract", "-q", "-d", str(work / "factory"), str(work / name)], check=True)
++        if settings:
++            data = Path(settings).read_bytes()
++            start = data.find(b"PK\x03\x04")
++            end = data.find(b"PK\x05\x06", start)
++            if start < 0 or end < 0:
++                raise ValueError("Runtime settings archive is absent")
++            comment = struct.unpack_from("<H", data, end + 20)[0]
++            with zipfile.ZipFile(io.BytesIO(data[start:end + 22 + comment])) as archive:
++                # Both AIstone APO4 cabinets carry the same global, metadata and
++                # profile files and only differ in their Devices/*.nsx. The cabinet
++                # of the already verified hardware is extracted last so the pinned
++                # manifest keeps describing those shared files.
++                settings_cabs = {
++                    "settings-nh3.cab": "Drivers\\EXT\\AIstone\\APO4\\NH3ProductSettings.cab",
++                    "settings-cnxt.cab": "Drivers\\EXT\\AIstone\\APO4\\NH3CNXTProductSettings.cab",
++                }
++                (work / "settings-msi-apo3.cab").write_bytes(archive.read("Drivers\\EXT\\MSI\\APO3\\NH3ProductSettings.cab"))
++                subprocess.run(["cabextract", "-q", "-d", str(work / "factory-apo3"), str(work / "settings-msi-apo3.cab")], check=True)
++                for member in archive.namelist():
++                    if member.startswith("Drivers\\APO3\\") and member.endswith(".dll"):
++                        target = work / "vendor-apo3" / member.split("\\")[-1]
++                        target.parent.mkdir(exist_ok=True)
++                        target.write_bytes(archive.read(member))
++                for name, member in settings_cabs.items():
++                    (work / name).write_bytes(archive.read(member))
++                    subprocess.run(["cabextract", "-q", "-d", str(work / "factory"), str(work / name)], check=True)
++        if asrock:
++            # The ASRock vendor bundle (Nahimic v1.10.11 APO4) is an Inno Setup
++            # installer whose %TEMP payload carries the board-specific restore
++            # tool. Its embedded ZIP holds the EXT product settings cabinet.
++            with zipfile.ZipFile(asrock) as installer:
++                member = next(m for m in installer.namelist() if m.lower().endswith(".exe"))
++                setup = work / "asrock-installer" / member
++                setup.parent.mkdir(parents=True, exist_ok=True)
++                setup.write_bytes(installer.read(member))
++            subprocess.run(["innoextract", "-q",
++                            "-I", "%TEMP/Nahimic3_apo4_1_10_11/ASRock-NahimicRestoreTool-APO4-SWCv5.0.6.0-EXTv1.4.0.0.exe",
++                            "--output-dir", str(work / "asrock"), str(setup)], check=True)
++            restored = next((work / "asrock").rglob("ASRock-NahimicRestoreTool*.exe"))
++            data = restored.read_bytes()
++            start = data.find(b"PK\x03\x04")
++            end = data.find(b"PK\x05\x06", start)
++            if start < 0 or end < 0:
++                raise ValueError("ASRock runtime settings archive is absent")
++            comment = struct.unpack_from("<H", data, end + 20)[0]
++            with zipfile.ZipFile(io.BytesIO(data[start:end + 22 + comment])) as archive:
++                (work / "settings-asrock.cab").write_bytes(archive.read("EXT\\NH3ProductSettings.cab"))
++            subprocess.run(["cabextract", "-q", "-d", str(work / "factory-asrock"), str(work / "settings-asrock.cab")], check=True)
+         for name, expected in manifest.items():
+             group, relative = name.split("/", 1)
+             source = work / ("swc" if group == "vendor" else group) / relative
++            if not source.exists():
++                if not settings and group in ("factory", "vendor-apo3", "factory-apo3"):
++                    continue  # generic AIstone/MSI settings were not supplied
++                raise ValueError("Runtime file missing: " + name)
+             if hashlib.sha256(source.read_bytes()).hexdigest() != expected:
+                 raise ValueError("Runtime checksum mismatch: " + name)
+             target = output / name
+diff --git a/packaging/runtime-sha256.json b/packaging/runtime-sha256.json
+index 2025dc4..6a001c4 100644
+--- a/packaging/runtime-sha256.json
++++ b/packaging/runtime-sha256.json
+@@ -18,6 +18,13 @@
+   "factory/AudioProfiles/Movie.nsx": "979250993a61ebaabd545e5b52703fe9ca5d41f3d895d7d5b9bbcc75981e46d4",
+   "factory/AudioProfiles/Gaming.nsx": "058d1f10358bb1287aa825d462dcdf06ba260f7e0bcd398628a0fceb6832ad3f",
+   "factory/AudioProfiles/Communication.nsx": "438031aabd60aaee4bc4ddfb50863743f1ee5d14514b4bf32e6facd3aab52dc0",
++  "factory-asrock/Global.nsx": "72cc2824e0fa4e61e652b9e2d5a86ebc7b862450e514ebade78e473b2c7abe10",
++  "factory-asrock/Metadata.nsx": "28e0635deaaf0fc0e5ef81978a6e4f208cf8f8c449a7b78d8ca3bd430660144d",
++  "factory-asrock/Devices/Generic_ExternalSpeakers.nsx": "dc65ddea791c78f05590b1f45870949a7c7a43f9182aee4d2ac4164dbf03142b",
++  "factory-asrock/AudioProfiles/Music.nsx": "8fdbe2ea702880d5e807a18fd0c879383aa18aa47aebd40589a20d46b079c4db",
++  "factory-asrock/AudioProfiles/Movie.nsx": "979250993a61ebaabd545e5b52703fe9ca5d41f3d895d7d5b9bbcc75981e46d4",
++  "factory-asrock/AudioProfiles/Gaming.nsx": "058d1f10358bb1287aa825d462dcdf06ba260f7e0bcd398628a0fceb6832ad3f",
++  "factory-asrock/AudioProfiles/Communication.nsx": "438031aabd60aaee4bc4ddfb50863743f1ee5d14514b4bf32e6facd3aab52dc0",
+   "vendor-apo3/NAHIMICV3apo.dll": "661bd44947d45bd3db6a9615316a09969c78a501bd22b07ab8be360f7c947542",
+   "vendor-apo3/NAHIMICV3NSControl.dll": "2e68064f6e4ada968511610d5eca9199697af19625f0f33c93427f7449d067ec",
+   "vendor-apo3/NAHIMICV3NSControlExpert.dll": "9d29ee704239498e8b63771dd132f76e61abb4ba1e7d5b46366470ae2d69b415",
+diff --git a/tests/test_routing.py b/tests/test_routing.py
+index 250c7cc..603a800 100644
+--- a/tests/test_routing.py
++++ b/tests/test_routing.py
+@@ -152,6 +152,46 @@ class RoutingTest(unittest.TestCase):
+                                          'effect', 'speaker', render=False))
+ 
+ 
++class AsrockLineOutTest(unittest.TestCase):
++    def sink(self, port='analog-output-lineout', components='HDA:10ec0897,18491897,00100402'):
++        return {'active_port': port, 'properties': {'alsa.components': components},
++                'ports': [{'name': 'analog-output-headphones', 'type': 'Headphones',
++                           'availability': 'not available'}]}
++
++    def test_exact_lineout_uses_asrock_external_profile(self):
++        from desktop_audio import runtime_files, asrock_line_out
++        sink = self.sink()
++        self.assertTrue(asrock_line_out(sink))
++        self.assertTrue(supported_speaker(sink, []))
++        self.assertEqual(device_settings(sink), 'Generic_ExternalSpeakers.nsx')
++        self.assertEqual(runtime_files(sink), ('vendor/NahimicAPO4.dll',
++                         'vendor/NahimicAPO4API.dll', 'factory-asrock'))
++
++    def test_lineout_port_names_and_inf_subsystems(self):
++        for port in ('analog-output-speaker', '[Out] Line Out', '[Out] Speaker'):
++            self.assertTrue(supported_speaker(self.sink(port), []), port)
++        for subsystem in ('18492897', '18496899', '18498899'):
++            self.assertTrue(supported_speaker(
++                self.sink(components=f'HDA:10ec0897,{subsystem},00100402'), []), subsystem)
++        for subsystem in ('18492229', '1849222a', '1849222b', '1849222c', '1849222d'):
++            self.assertTrue(supported_speaker(
++                self.sink(components=f'HDA:10ec1220,{subsystem},00100101'), []), subsystem)
++
++    def test_headphones_and_other_vendors_are_excluded(self):
++        self.assertFalse(supported_speaker(self.sink('analog-output-headphones'), []))
++        self.assertFalse(supported_speaker(self.sink(components='HDA:10ec0897,10438356,00100402'), []))
++        sink = self.sink()
++        sink['ports'][0]['availability'] = 'available'
++        self.assertFalse(supported_speaker(sink, []))
++
++    def test_untyped_headphone_port_name_still_bypasses(self):
++        # Path-configured HDA cards may omit the port type; the port name
++        # identifies the jack when its availability reports a connection.
++        sink = self.sink()
++        sink['ports'] = [{'name': 'analog-output-headphones', 'availability': 'available'}]
++        self.assertFalse(supported_speaker(sink, []))
++
++
+ class MsiLineOutTest(unittest.TestCase):
+     def sink(self, port='analog-output-lineout', components='HDA:10ec1220,1462cc35,00100101'):
+         return {'active_port': port, 'properties': {'alsa.components': components},

@@ -1,0 +1,489 @@
+diff --git a/README.en.md b/README.en.md
+index e7959de..b0b26b1 100644
+--- a/README.en.md
++++ b/README.en.md
+@@ -97,6 +97,13 @@ using the display names the Windows panel localizes. Choosing a preset writes
+ all ten band gains in one store update; moving a slider switches the selection
+ back to Custom, exactly like the Windows panel.
+ 
++The control panel also keeps a system tray icon, like the Windows app: closing
++the window hides it to the tray while the audio service keeps running, the
++tray menu reopens the panel or quits the app, and login autostart runs hidden
++in the tray. Qt's tray speaks the XEmbed protocol, so on Plasma Wayland the
++panel restarts itself once under XWayland, where `xembed-sni-proxy` bridges
++the icon into the tray; `NAHIMIC_TRAY=0` restores the plain no-tray behaviour.
++
+ ## Contribute device support
+ 
+ Read [AGENTS.md](AGENTS.md) first. Include your laptop model, audio hardware IDs, PipeWire output information, and results from testing effect switching, settings persistence, service restarts, and continuous playback. Each model needs a configuration matching its hardware. New device support should be verified on the actual machine before submitting a pull request.
+diff --git a/README.md b/README.md
+index f41c594..d4576b9 100644
+--- a/README.md
++++ b/README.md
+@@ -70,6 +70,8 @@ APO3 文件来自现有固定版本恢复工具归档，与 APO4 的运行组件
+ 
+ 同一安装包内的 Nahimic3 应用还带有厂商均衡器预设（`Settings/v1/EQPresets`，安装到 `eqpresets`）。控制面板在每个音效模式下显示对应的预设按钮——音乐：增加动态、强化低音、增强明亮、人声增强；电影：对白增强、更加沉浸；游戏：节奏紧凑、氛围强化、第一人称射击、极限竞速；通话：平衡语音、通话清晰、实况转播——并沿用 Windows 面板的本地化名称。选择预设会一次性写入全部十个频段增益；手动拖动滑块后自动回到自定义，与 Windows 面板一致。
+ 
++控制面板同时提供系统托盘图标，与 Windows 版一致：关闭窗口时隐藏到托盘，音效服务继续运行；托盘菜单可重新打开面板或退出程序；登录自启动时直接驻留托盘。Qt 的托盘走 XEmbed 协议，因此在 Plasma Wayland 会话中面板会以 XWayland 方式重启一次，由 `xembed-sni-proxy` 将图标桥接进系统托盘；设置 `NAHIMIC_TRAY=0` 可恢复无托盘的原始行为。
++
+ ## 贡献设备适配
+ 
+ 请先阅读 [AGENTS.md](AGENTS.md)。提交机器型号、声卡硬件 ID、PipeWire 输出信息，以及音效开关、参数保存、服务重启和连续播放的测试结果。每个型号使用与硬件匹配的配置，新增支持以本机验证为依据。
+diff --git a/app/locales/de.json b/app/locales/de.json
+index f6891fa..4177325 100644
+--- a/app/locales/de.json
++++ b/app/locales/de.json
+@@ -71,5 +71,9 @@
+   "平衡语音": "Ausgeglichen",
+   "通话清晰": "Klarer Chat",
+   "实况转播": "Livestream",
+-  "自定义": "Eigene Einstellungen"
++  "自定义": "Eigene Einstellungen",
++  "打开 Nahimic": "Nahimic öffnen",
++  "隐藏 Nahimic": "Nahimic ausblenden",
++  "退出 Nahimic": "Nahimic beenden",
++  "Nahimic 音效": "Nahimic-Soundeffekte"
+ }
+diff --git a/app/locales/en.json b/app/locales/en.json
+index aa9d808..7790ba0 100644
+--- a/app/locales/en.json
++++ b/app/locales/en.json
+@@ -71,5 +71,9 @@
+   "平衡语音": "Balanced",
+   "通话清晰": "Clear Chat",
+   "实况转播": "Livestream",
+-  "自定义": "Custom"
++  "自定义": "Custom",
++  "打开 Nahimic": "Open Nahimic",
++  "隐藏 Nahimic": "Hide Nahimic",
++  "退出 Nahimic": "Quit Nahimic",
++  "Nahimic 音效": "Nahimic audio effects"
+ }
+diff --git a/app/locales/es.json b/app/locales/es.json
+index 535cdd5..34d33d9 100644
+--- a/app/locales/es.json
++++ b/app/locales/es.json
+@@ -71,5 +71,9 @@
+   "平衡语音": "Equilibrado",
+   "通话清晰": "Chat claro",
+   "实况转播": "Livestream",
+-  "自定义": "Personalizado"
++  "自定义": "Personalizado",
++  "打开 Nahimic": "Abrir Nahimic",
++  "隐藏 Nahimic": "Ocultar Nahimic",
++  "退出 Nahimic": "Salir de Nahimic",
++  "Nahimic 音效": "Efectos de sonido de Nahimic"
+ }
+diff --git a/app/locales/fr.json b/app/locales/fr.json
+index a10bfa3..284910d 100644
+--- a/app/locales/fr.json
++++ b/app/locales/fr.json
+@@ -71,5 +71,9 @@
+   "平衡语音": "Equilibré",
+   "通话清晰": "Clear chat",
+   "实况转播": "Livestream",
+-  "自定义": "Personnalisé"
++  "自定义": "Personnalisé",
++  "打开 Nahimic": "Ouvrir Nahimic",
++  "隐藏 Nahimic": "Masquer Nahimic",
++  "退出 Nahimic": "Quitter Nahimic",
++  "Nahimic 音效": "Effets audio Nahimic"
+ }
+diff --git a/app/locales/it.json b/app/locales/it.json
+index 8229a4c..dd08b90 100644
+--- a/app/locales/it.json
++++ b/app/locales/it.json
+@@ -71,5 +71,9 @@
+   "平衡语音": "Bilanciato",
+   "通话清晰": "Clear Chat",
+   "实况转播": "Diretta streaming",
+-  "自定义": "Custom"
++  "自定义": "Custom",
++  "打开 Nahimic": "Apri Nahimic",
++  "隐藏 Nahimic": "Nascondi Nahimic",
++  "退出 Nahimic": "Esci da Nahimic",
++  "Nahimic 音效": "Effetti audio Nahimic"
+ }
+diff --git a/app/locales/ja.json b/app/locales/ja.json
+index 9f6a5c1..45f2ccd 100644
+--- a/app/locales/ja.json
++++ b/app/locales/ja.json
+@@ -71,5 +71,9 @@
+   "平衡语音": "バランス",
+   "通话清晰": "クリアチャット",
+   "实况转播": "ライブストリーム",
+-  "自定义": "カスタム"
++  "自定义": "カスタム",
++  "打开 Nahimic": "Nahimic を開く",
++  "隐藏 Nahimic": "Nahimic を隠す",
++  "退出 Nahimic": "Nahimic を終了",
++  "Nahimic 音效": "Nahimic サウンドエフェクト"
+ }
+diff --git a/app/locales/ko.json b/app/locales/ko.json
+index ebe07c8..4ab3a41 100644
+--- a/app/locales/ko.json
++++ b/app/locales/ko.json
+@@ -71,5 +71,9 @@
+   "平衡语音": "균형된",
+   "通话清晰": "채팅 삭제",
+   "实况转播": "실시간 방송",
+-  "自定义": "사용자 지정"
++  "自定义": "사용자 지정",
++  "打开 Nahimic": "Nahimic 열기",
++  "隐藏 Nahimic": "Nahimic 숨기기",
++  "退出 Nahimic": "Nahimic 끝내기",
++  "Nahimic 音效": "Nahimic 사운드 효과"
+ }
+diff --git a/app/locales/pt.json b/app/locales/pt.json
+index 8360528..497b86a 100644
+--- a/app/locales/pt.json
++++ b/app/locales/pt.json
+@@ -71,5 +71,9 @@
+   "平衡语音": "Equilibrado",
+   "通话清晰": "Limpar Conversa",
+   "实况转播": "Livestream",
+-  "自定义": "Personalizar"
++  "自定义": "Personalizar",
++  "打开 Nahimic": "Abrir o Nahimic",
++  "隐藏 Nahimic": "Ocultar o Nahimic",
++  "退出 Nahimic": "Sair do Nahimic",
++  "Nahimic 音效": "Efeitos de áudio do Nahimic"
+ }
+diff --git a/app/locales/ru.json b/app/locales/ru.json
+index 41c6c9e..64ce10a 100644
+--- a/app/locales/ru.json
++++ b/app/locales/ru.json
+@@ -71,5 +71,9 @@
+   "平衡语音": "Сбалансированный",
+   "通话清晰": "Очистка чата",
+   "实况转播": "Прямая трансляция",
+-  "自定义": "Пользовательский"
++  "自定义": "Пользовательский",
++  "打开 Nahimic": "Открыть Nahimic",
++  "隐藏 Nahimic": "Скрыть Nahimic",
++  "退出 Nahimic": "Выйти из Nahimic",
++  "Nahimic 音效": "Звуковые эффекты Nahimic"
+ }
+diff --git a/app/locales/tr.json b/app/locales/tr.json
+index 4a46e4a..20e1a85 100644
+--- a/app/locales/tr.json
++++ b/app/locales/tr.json
+@@ -71,5 +71,9 @@
+   "平衡语音": "Dengeli",
+   "通话清晰": "Temiz Sohbet",
+   "实况转播": "Canlı Yayın",
+-  "自定义": "Özel"
++  "自定义": "Özel",
++  "打开 Nahimic": "Nahimic'i aç",
++  "隐藏 Nahimic": "Nahimic'i gizle",
++  "退出 Nahimic": "Nahimic'ten çık",
++  "Nahimic 音效": "Nahimic ses efektleri"
+ }
+diff --git a/app/locales/zh_CN.json b/app/locales/zh_CN.json
+index 904f169..7a40e55 100644
+--- a/app/locales/zh_CN.json
++++ b/app/locales/zh_CN.json
+@@ -71,5 +71,9 @@
+   "平衡语音": "平衡语音",
+   "通话清晰": "通话清晰",
+   "实况转播": "实况转播",
+-  "自定义": "自定义"
++  "自定义": "自定义",
++  "打开 Nahimic": "打开 Nahimic",
++  "隐藏 Nahimic": "隐藏 Nahimic",
++  "退出 Nahimic": "退出 Nahimic",
++  "Nahimic 音效": "Nahimic 音效"
+ }
+diff --git a/app/locales/zh_TW.json b/app/locales/zh_TW.json
+index ca72698..267a9ab 100644
+--- a/app/locales/zh_TW.json
++++ b/app/locales/zh_TW.json
+@@ -71,5 +71,9 @@
+   "平衡语音": "平衡語音",
+   "通话清晰": "通話清晰",
+   "实况转播": "實況轉播",
+-  "自定义": "客製"
++  "自定义": "客製",
++  "打开 Nahimic": "開啟 Nahimic",
++  "隐藏 Nahimic": "隱藏 Nahimic",
++  "退出 Nahimic": "結束 Nahimic",
++  "Nahimic 音效": "Nahimic 音效"
+ }
+diff --git a/app/main.py b/app/main.py
+index cfa5fee..9bad82b 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -11,7 +11,7 @@ from PySide6.QtCore import QTimer, Qt, QLockFile, QRectF, QSize
+ from PySide6.QtGui import QIcon, QPainter, QColor, QPen, QPixmap, QFont, QLinearGradient
+ from PySide6.QtNetwork import QLocalServer, QLocalSocket
+ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+-    QLabel, QPushButton, QCheckBox, QSlider, QFrame, QDialog, QToolButton, QButtonGroup, QSizePolicy, QStyle, QStyleOptionToolButton, QStylePainter, QComboBox, QMessageBox)
++    QLabel, QPushButton, QCheckBox, QSlider, QFrame, QDialog, QToolButton, QButtonGroup, QSizePolicy, QStyle, QStyleOptionToolButton, QStylePainter, QComboBox, QMessageBox, QMenu, QSystemTrayIcon)
+ from backend import Backend, DATA, EQ_BANDS, PROFILES
+ from i18n import Translations, LANGUAGES
+ from window_frame import decorate
+@@ -179,6 +179,67 @@ class ProfileButton(SpacedToolButton):
+             painter.fillRect(0, self.height() - 3, self.width(), 3, QColor('#00dcf5'))
+ 
+ 
++class TrayIcon(QSystemTrayIcon):
++    """System tray presence for the panel, mirroring the Windows app's icon."""
++    def __init__(self, panel, translations):
++        icon = QIcon(str(Path(__file__).with_name('nahimic.svg')))
++        if icon.pixmap(32, 32).isNull():
++            icon = QIcon(str(ASSETS / 'Audio16x16.png'))
++        super().__init__(icon)
++        self.panel = panel
++        self.translations = translations
++        self.menu = QMenu()
++        self.toggle_action = self.menu.addAction('')
++        self.toggle_action.triggered.connect(self.toggle_panel)
++        self.quit_action = self.menu.addAction('')
++        self.quit_action.triggered.connect(QApplication.instance().quit)
++        self.setContextMenu(self.menu)
++        self.activated.connect(self.activated_reason)
++        self.translations.bind(self, 'toolTip', 'Nahimic 音效')
++        self.refresh_texts()
++        self.show()
++
++    def refresh_texts(self):
++        self.translations.bind(self.toggle_action, 'text',
++                               '隐藏 Nahimic' if self.panel.isVisible() else '打开 Nahimic')
++        self.translations.bind(self.quit_action, 'text', '退出 Nahimic')
++
++    def activated_reason(self, reason):
++        if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick):
++            self.toggle_panel()
++
++    def toggle_panel(self):
++        if self.panel.isVisible():
++            self.panel.hide()
++        else:
++            self.panel.showNormal(); self.panel.raise_(); self.panel.activateWindow()
++        self.refresh_texts()
++
++
++def tray_available():
++    return QSystemTrayIcon.isSystemTrayAvailable()
++
++
++def tray_needs_xwayland(platform, environment):
++    """Whether the panel should retry under XWayland so Plasma can host its icon.
++
++    Qt's system tray speaks the XEmbed protocol, which native Wayland windows
++    cannot join; Plasma Wayland bridges XEmbed icons into its tray through
++    xembed-sni-proxy. One restart with the xcb platform is therefore enough on
++    Plasma, while other desktops stay on their native platform.
++    """
++    if platform != 'wayland':
++        return False
++    if not environment.get('WAYLAND_DISPLAY'):
++        return False
++    if environment.get('NAHIMIC_TRAY') == '0':
++        return False
++    if environment.get('QT_QPA_PLATFORM') or environment.get('NAHIMIC_TRAY_XCB'):
++        return False
++    session = (environment.get('XDG_CURRENT_DESKTOP') or '') + ':' + (environment.get('XDG_SESSION_DESKTOP') or '')
++    return 'KDE' in session.upper()
++
++
+ class Panel(QMainWindow):
+     def __init__(self):
+         super().__init__()
+@@ -368,6 +429,17 @@ class Panel(QMainWindow):
+         self.timer=QTimer(self);self.timer.timeout.connect(self.poll);self.timer.start(100)
+         self.status_timer=QTimer(self);self.status_timer.timeout.connect(self.refresh);self.status_timer.start(2000)
+         self.refresh()
++        # With a tray icon the panel stays resident: closing hides to the tray.
++        self.tray = None
++        if os.environ.get('NAHIMIC_TRAY') != '0' and tray_available():
++            self.tray = TrayIcon(self, self.translations)
++            QApplication.instance().setQuitOnLastWindowClosed(False)
++
++    def closeEvent(self, event):
++        if self.tray is not None:
++            self.hide()
++            self.tray.refresh_texts()
++            event.ignore()
+ 
+     def change_language(self, index):
+         try:
+@@ -378,6 +450,8 @@ class Panel(QMainWindow):
+             return
+         self.language.setItemText(0, self.translations.text('跟随系统'))
+         self.preferences.adjustSize()
++        if self.tray is not None:
++            self.tray.refresh_texts()
+ 
+     def effect_switch(self, name, label):
+         switch=Toggle(label)
+@@ -576,6 +650,9 @@ class Panel(QMainWindow):
+ 
+ def main():
+     app=QApplication(sys.argv);app.setStyle('Fusion');app.setStyleSheet(STYLE)
++    if tray_needs_xwayland(app.platformName(), os.environ) and not tray_available():
++        os.environ['QT_QPA_PLATFORM']='xcb';os.environ['NAHIMIC_TRAY_XCB']='1'
++        os.execv(sys.executable,[sys.executable]+sys.argv)
+     runtime=Path(os.environ['XDG_RUNTIME_DIR']);lock=QLockFile(str(runtime/'nahimic-panel.lock'))
+     socket_name=str(runtime/'nahimic-panel.socket')
+     if not lock.tryLock(0):
+@@ -592,8 +669,11 @@ def main():
+         if panel.settings_loaded:
+             panel.submit(panel.backend.settings, 'settings')
+         panel.showNormal();panel.raise_();panel.activateWindow()
++        if panel.tray is not None: panel.tray.refresh_texts()
+     server.newConnection.connect(activate)
+-    panel.show();app.exec();panel.pool.shutdown(wait=True,cancel_futures=True)
++    if '--hidden' not in sys.argv or panel.tray is None:
++        panel.show()
++    app.exec();panel.pool.shutdown(wait=True,cancel_futures=True)
+ 
+ 
+ if __name__=='__main__':main()
+diff --git a/host/entry.py b/host/entry.py
+index ee70ddb..c69ea50 100644
+--- a/host/entry.py
++++ b/host/entry.py
+@@ -149,6 +149,7 @@ def main():
+     elif args.autostart:
+         if not (DATA / "activated").exists():
+             activate()
++        os.execv(sys.executable, [sys.executable, str(ROOT / "app/main.py"), "--hidden"])
+     else:
+         if not (DATA / "activated").exists():
+             activate()
+diff --git a/tests/test_tray.py b/tests/test_tray.py
+new file mode 100644
+index 0000000..194a49b
+--- /dev/null
++++ b/tests/test_tray.py
+@@ -0,0 +1,129 @@
++"""System tray icon: menu labels, hide-to-tray, activation and the Wayland retry."""
++import copy
++from concurrent.futures import Future
++import os
++from pathlib import Path
++import sys
++import unittest
++from unittest.mock import patch
++
++os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
++sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'app'))
++from PySide6.QtWidgets import QApplication, QSystemTrayIcon
++import main
++from main import Panel, tray_needs_xwayland
++
++
++class ManualExecutor:
++    def __init__(self, **kwargs): self.calls = {}
++    def submit(self, function):
++        future = Future(); self.calls[future] = function; return future
++    def shutdown(self, **kwargs): pass
++
++
++class AudioBackend:
++    def __init__(self):
++        self.data = {'profile':'Music', 'settings':{}}
++        self.state = {'ready':True,'service':'active','autostart':True,'instance':1,
++                      'enabled':True,'active':True,'volume':50,'muted':False}
++    def status(self): return copy.deepcopy(self.state)
++    def settings(self): return copy.deepcopy(self.data)
++    def eq_presets(self): return {}
++    def set_setting(self, key, value):
++        self.data['settings'][key]['value'] = value
++        return self.settings()
++    def set_settings(self, values):
++        for key, value in values.items():
++            self.data['settings'][key]['value'] = value
++        return self.settings()
++    def profile(self, value):
++        self.data['profile']=value
++        return self.settings()
++    def mute(self, value): self.state['muted']=value
++    def volume(self, value): self.state['volume']=value
++    def enabled(self, value): self.state['enabled']=value
++    def autostart(self, value): self.state['autostart']=value
++
++
++class TrayIconTest(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls): cls.app=QApplication.instance() or QApplication([])
++    def setUp(self):
++        with patch('main.Backend', AudioBackend), patch('main.ThreadPoolExecutor', ManualExecutor), \
++             patch('main.tray_available', lambda: True):
++            self.panel = Panel()
++        p=self.panel;p.timer.stop();p.status_timer.stop()
++        for name in p.values:
++            p.backend.data['settings'][name]={'min':-12,'max':12,'value':0}
++        for name in p.switches:
++            p.backend.data['settings'][name]={'min':0,'max':1,'value':1}
++    def tearDown(self):
++        p=self.panel;p.busy_timer.stop();p.close();p.deleteLater()
++
++    def test_menu_carries_translated_actions(self):
++        p=self.panel
++        self.assertIsNotNone(p.tray)
++        self.assertEqual(p.tray.toggle_action.text(), p.translations.text('打开 Nahimic'))
++        self.assertEqual(p.tray.quit_action.text(), p.translations.text('退出 Nahimic'))
++        self.assertEqual(p.tray.toolTip(), p.translations.text('Nahimic 音效'))
++
++    def test_closing_hides_to_the_tray_instead_of_quitting(self):
++        p=self.panel
++        self.assertFalse(QApplication.instance().quitOnLastWindowClosed())
++        self.assertFalse(p.close())
++        self.assertTrue(p.isHidden())
++        self.assertEqual(p.tray.toggle_action.text(), p.translations.text('打开 Nahimic'))
++
++    def test_tray_click_toggles_the_window(self):
++        p=self.panel;p.hide()
++        p.tray.activated.emit(QSystemTrayIcon.Trigger)
++        self.assertTrue(p.isVisible())
++        self.assertEqual(p.tray.toggle_action.text(), p.translations.text('隐藏 Nahimic'))
++        p.tray.activated.emit(QSystemTrayIcon.DoubleClick)
++        self.assertTrue(p.isHidden())
++        self.assertEqual(p.tray.toggle_action.text(), p.translations.text('打开 Nahimic'))
++
++    def test_quit_action_quits_the_application(self):
++        with patch('main.QApplication') as application:
++            with patch('main.Backend', AudioBackend), patch('main.ThreadPoolExecutor', ManualExecutor), \
++                 patch('main.tray_available', lambda: True):
++                panel = Panel()
++            panel.tray.quit_action.trigger()
++            application.instance().quit.assert_called_once()
++            panel.busy_timer.stop();panel.close();panel.deleteLater()
++
++    def test_closing_without_a_tray_closes_the_window(self):
++        with patch('main.Backend', AudioBackend), patch('main.ThreadPoolExecutor', ManualExecutor):
++            panel = Panel()
++        self.assertIsNone(panel.tray)
++        self.assertTrue(panel.close())
++        self.assertTrue(panel.isHidden())
++        panel.deleteLater()
++
++    def test_menu_texts_follow_the_interface_language(self):
++        p=self.panel
++        original=p.translations.code
++        p.translations.code='en'
++        try:
++            p.tray.refresh_texts()
++            p.translations.retranslate()
++            self.assertEqual(p.tray.toggle_action.text(),'Open Nahimic')
++            self.assertEqual(p.tray.quit_action.text(),'Quit Nahimic')
++            self.assertEqual(p.tray.toolTip(),'Nahimic audio effects')
++        finally:
++            p.translations.code=original
++            p.tray.refresh_texts()
++            p.translations.retranslate()
++
++    def test_xwayland_retry_is_limited_to_plasma_wayland(self):
++        plasma={'WAYLAND_DISPLAY':'wayland-0','XDG_CURRENT_DESKTOP':'KDE','XDG_SESSION_DESKTOP':'Plasma'}
++        self.assertTrue(tray_needs_xwayland('wayland', plasma))
++        self.assertFalse(tray_needs_xwayland('xcb', plasma))
++        self.assertFalse(tray_needs_xwayland('wayland', {'WAYLAND_DISPLAY':'wayland-0','XDG_CURRENT_DESKTOP':'GNOME'}))
++        self.assertFalse(tray_needs_xwayland('wayland', {**plasma,'QT_QPA_PLATFORM':'wayland'}))
++        self.assertFalse(tray_needs_xwayland('wayland', {**plasma,'NAHIMIC_TRAY_XCB':'1'}))
++        self.assertFalse(tray_needs_xwayland('wayland', {**plasma,'NAHIMIC_TRAY':'0'}))
++        self.assertFalse(tray_needs_xwayland('wayland', {'XDG_CURRENT_DESKTOP':'KDE'}))
++
++
++if __name__ == '__main__': unittest.main()
